@@ -16,6 +16,7 @@ tests/
 .github/
   workflows/
     ci.yml        Package, CLI, stream, and Action validation
+    release.yml   CLI package and Action releases
 action.yml        Hooksmith GitHub Action
 deno.json         Workspace and dependency configuration
 ```
@@ -118,9 +119,13 @@ The integration scenarios use repository-owned fixtures under [`tests/fixtures`]
 
 - [`@hooksmith/cli`](packages/cli) — bounded runs, streaming, config loading, and report formatting.
 
-## Release model
+## Releases
 
-Release orchestration is intentionally not part of the initial repository move. CLI versioning, Action tags, Docker distribution, and automatic dependency bumps from the Hooksmith runtime repository will be designed as the next step after the repository split is validated.
+The release workflow owns the CLI package and Action release lifecycle. A manual release selects a semantic-version bump, updates workspace package versions, validates the repository, creates the immutable `vX.Y.Z` tag and GitHub release, publishes the JSR packages, uploads packed release assets, and moves the floating Action tags `vX` and `vX.Y`.
+
+Because this repository starts with the CLI already at `0.8.0`, the first release without an existing local tag uses the package manifest as its version baseline rather than restarting version history.
+
+Cross-repository orchestration is intentionally separate: automatic dependency bumps following Hooksmith runtime releases, and future Docker image publication, will be designed after the repository split is complete.
 
 ## License
 

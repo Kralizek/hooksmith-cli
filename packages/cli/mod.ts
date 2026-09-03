@@ -1,302 +1,242 @@
-#!/usr/bin/env -S deno run --allow-read --allow-env --allow-net
-
+import { Command } from "@cliffy/command";
 import type { Config, Event, Logger } from "@hooksmith/core";
-import {
-  assertEventDocument,
-  createRuntime,
-  hydrateEvent,
-  type Runtime,
-} from "@hooksmith/runtime";
-import { Command, EnumType } from "@cliffy/command";
-import { resolve, toFileUrl } from "@std/path";
-import cliMetadata from "./deno.json" with { type: "json" };
-import type { RunCliOptions } from "./args.ts";
-import { loadEventDocuments, resolveInputPaths } from "./input.ts";
-import {
-  type CliReport,
-  createReport,
-  type EventExecutionReport,
-  type EventInput,
-  formatReport,
-  inferRoutingOutcome,
-  toEventReport,
-} from "./report.ts";
-
-export * from "./args.ts";
-export * from "./input.ts";
-export * from "./report.ts";
-
-export const VERSION = cliMetadata.version;
-
-let exitCode = 0;
-const reportFormatType = new EnumType(["table", "json", "tsv"] as const);
-
-const runCommand = new Command()
-  .description("Process one or more bounded event inputs.")
-  .helpOption(false)
-  .type("report-format", reportFormatType)
-  .arguments("<eventFile:string> [...eventFiles:string]")
-  .option(
-    "-c, --config <path:string>",
-    "Config file.",
-    { default: "hooksmith.config.ts" },
-  )
-  .option(
-    "--format <format:report-format>",
-    "Report format.",
-    { default: "table" },
-  )
-  .option("--plan", "Plan events without invoking listeners.")
-  .option("--allow-empty", "Allow a run that resolves to zero events.")
-  .action(async (options, eventFile, ...eventFiles) => {
-    const inputs = [eventFile, ...eventFiles];
-    if (inputs.filter((path) => path === "-").length > 1) {
-      throw new Error("run accepts stdin at most once.");
-    }
-
-    const configFile = resolve(options.config);
-    const config = await loadConfig(configFile);
-    const runtime = createRuntime(config, { log: stderrLogger });
-    const report = await processBounded(runtime, {
-      eventFiles: inputs,
-      configFile,
-      format: options.format,
-      plan: options.plan ?? false,
-      allowEmpty: options.allowEmpty ?? false,
-    });
-
-    await writeStdout(`${formatReport(report, options.format)}\n`);
-    exitCode = report.success ? 0 : 1;
-  });
-
-const streamCommand = new Command()
-  .description("Read NDJSON events from stdin and emit NDJSON reports.")
-  .helpOption(false)
-  .option(
-    "-c, --config <path:string>",
-    "Config file.",
-    { default: "hooksmith.config.ts" },
-  )
-  .action(async (options) => {
-    const config = await loadConfig(resolve(options.config));
-    const runtime = createRuntime(config, { log: stderrLogger });
-    exitCode = await processStream(runtime);
-  });
-
-const helpCommand = new Command()
-  .description("Show this help or the help of a sub-command.")
-  .helpOption(false)
-  .noGlobals()
-  .option("-h, --help", "", {
-    hidden: true,
-    action: () => {
-      throw new Error("Unknown option: --help.");
-    },
-  })
-  .arguments("[command:string]")
-  .action(function (_, commandName?: string) {
-    const parent = this.getGlobalParent();
-    const command = commandName ? parent?.getBaseCommand(commandName) : parent;
-
-    if (!command) {
-      throw new Error(`Unknown command: ${commandName}.`);
-    }
-
-    command.showHelp();
-  });
-
-const cli = new Command()
-  .name("hooksmith")
-  .description("Process events with Hooksmith.")
-  .version(VERSION)
-  .helpOption(false)
-  .versionOption("-v, --version", "Print the Hooksmith CLI version.")
-  .noExit()
-  .command("run", runCommand)
-  .command("stream", streamCommand)
-  .command("help", helpCommand)
-  .action(function () {
-    this.showHelp();
-  });
-
-export function usage(): string {
-  return cli.getHelp();
-}
+import { createRuntime } from "@hooksmith/runtime";
+import { expandGlob } from "./glob.ts";
+import { readEvents } from "./input.ts";
+import { parseArgs } from "./args.ts";
+import { formatRunReport, type RunReport } from "./report.ts";
 
 export async function main(args: string[]): Promise<number> {
-  exitCode = args.length === 0 ? 1 : 0;
+  const parsed = await parseArgs(args);
 
-  try {
-    await cli.parse(args);
-    return exitCode;
-  } catch (error) {
-    stderrLogger.error(errorMessage(error));
-    return 1;
+  if (parsed.kind === "help") {
+    await writeStdout(parsed.text);
+    return 0;
   }
+
+  if (parsed.kind === "version") {
+    await writeStdout(`${parsed.version}\n`);
+    return 0;
+  }
+
+  if (parsed.kind === "stream") {
+    return await runStream(parsed);
+  }
+
+  return await runBounded(parsed);
 }
 
-async function processBounded(
-  runtime: Runtime,
-  options: RunCliOptions,
-): Promise<CliReport> {
-  const events: EventExecutionReport[] = [];
-  let eventIndex = 0;
-  const paths = await resolveInputPaths(options.eventFiles);
+async function runBounded(
+  parsed: Extract<Awaited<ReturnType<typeof parseArgs>>, { kind: "run" }>,
+): Promise<number> {
+  const mode = parsed.plan ? "plan" : "run";
 
-  for (const path of paths) {
-    const source = inputSource(path);
-    let documents: unknown[];
+  let config: Config;
+  try {
+    config = await loadConfig(parsed.config);
+  } catch (error) {
+    console.error(errorMessage(error));
+    return 1;
+  }
 
-    try {
-      documents = await loadEventDocuments(path);
-    } catch (error) {
-      eventIndex++;
-      events.push(inputFailure(
-        { source, index: eventIndex, sourceIndex: 1 },
-        error,
-      ));
+  const runtime = createRuntime(config, { log: stderrLogger });
+  const reports: RunReport["events"] = [];
+  let success = true;
+  let inputIndex = 0;
+
+  for (const pattern of parsed.events) {
+    const paths = pattern === "-" ? ["-"] : await expandGlob(pattern);
+
+    if (paths.length === 0) {
+      if (parsed.allowEmpty) continue;
+
+      success = false;
+      reports.push({
+        input: { index: ++inputIndex, path: pattern },
+        success: false,
+        outcome: "rejected",
+        error: `No input matched ${pattern}`,
+      });
       continue;
     }
 
-    for (let sourceIndex = 0; sourceIndex < documents.length; sourceIndex++) {
-      eventIndex++;
-      events.push(
-        await processDocument(
-          runtime,
-          documents[sourceIndex],
-          { source, index: eventIndex, sourceIndex: sourceIndex + 1 },
-          options.plan,
-        ),
-      );
+    for (const path of paths) {
+      try {
+        const events = await readEvents(path);
+
+        if (events.length === 0 && !parsed.allowEmpty) {
+          success = false;
+          reports.push({
+            input: { index: ++inputIndex, path },
+            success: false,
+            outcome: "rejected",
+            error: `No events found in ${path}`,
+          });
+          continue;
+        }
+
+        for (const event of events) {
+          const index = ++inputIndex;
+          try {
+            const result = parsed.plan
+              ? await runtime.plan(event)
+              : await runtime.run(event);
+
+            const eventSuccess = result.success;
+            success &&= eventSuccess;
+            reports.push({
+              input: { index, path },
+              event,
+              success: eventSuccess,
+              outcome: eventSuccess ? "processed" : "failed",
+              results: result.results,
+            });
+          } catch (error) {
+            success = false;
+            reports.push({
+              input: { index, path },
+              event,
+              success: false,
+              outcome: "failed",
+              error: errorMessage(error),
+            });
+          }
+        }
+      } catch (error) {
+        success = false;
+        reports.push({
+          input: { index: ++inputIndex, path },
+          success: false,
+          outcome: "rejected",
+          error: errorMessage(error),
+        });
+      }
     }
   }
 
-  if (events.length === 0 && !options.allowEmpty) {
-    events.push(inputFailure(
-      { source: "run", index: 1, sourceIndex: 0 },
-      new Error("No events were resolved from the supplied inputs."),
-    ));
-  }
+  const report: RunReport = {
+    success,
+    mode,
+    events: reports,
+  };
 
-  return createReport(options.plan ? "plan" : "run", events);
+  await writeStdout(formatRunReport(report, parsed.format));
+  return success ? 0 : 1;
 }
 
-async function processStream(runtime: Runtime): Promise<number> {
-  let eventIndex = 0;
-  let lineNumber = 0;
+async function runStream(
+  parsed: Extract<Awaited<ReturnType<typeof parseArgs>>, { kind: "stream" }>,
+): Promise<number> {
+  let config: Config;
+  try {
+    config = await loadConfig(parsed.config);
+  } catch (error) {
+    console.error(errorMessage(error));
+    return 1;
+  }
+
+  const runtime = createRuntime(config, { log: stderrLogger });
 
   for await (const line of readLines(Deno.stdin.readable)) {
-    lineNumber++;
     if (line.trim().length === 0) continue;
 
-    eventIndex++;
-    const input: EventInput = {
-      source: "stdin",
-      index: eventIndex,
-      sourceIndex: lineNumber,
-    };
-
-    let eventReport: EventExecutionReport;
+    let report: RunReport;
     try {
-      eventReport = await processDocument(
-        runtime,
-        JSON.parse(line),
-        input,
-        false,
-      );
+      const document = JSON.parse(line);
+      const events = await readEventsFromValue(document);
+
+      if (events.length !== 1) {
+        throw new Error("Each NDJSON line must contain exactly one event.");
+      }
+
+      const event = events[0];
+      try {
+        const result = parsed.plan
+          ? await runtime.plan(event)
+          : await runtime.run(event);
+        report = {
+          success: result.success,
+          mode: parsed.plan ? "plan" : "run",
+          events: [{
+            input: { index: 1, path: "stdin" },
+            event,
+            success: result.success,
+            outcome: result.success ? "processed" : "failed",
+            results: result.results,
+          }],
+        };
+      } catch (error) {
+        report = {
+          success: false,
+          mode: parsed.plan ? "plan" : "run",
+          events: [{
+            input: { index: 1, path: "stdin" },
+            event,
+            success: false,
+            outcome: "failed",
+            error: errorMessage(error),
+          }],
+        };
+      }
     } catch (error) {
-      eventReport = inputFailure(input, error);
+      report = {
+        success: false,
+        mode: parsed.plan ? "plan" : "run",
+        events: [{
+          input: { index: 1, path: "stdin" },
+          success: false,
+          outcome: "rejected",
+          error: errorMessage(error),
+        }],
+      };
     }
 
-    const report = createReport("run", [eventReport]);
     await writeStdout(`${JSON.stringify(report)}\n`);
   }
 
   return 0;
 }
 
-async function processDocument(
-  runtime: Runtime,
-  document: unknown,
-  input: EventInput,
-  plan: boolean,
-): Promise<EventExecutionReport> {
-  let event: Event;
-
-  try {
-    assertEventDocument(document);
-    event = hydrateEvent(document);
-  } catch (error) {
-    return inputFailure(input, error);
-  }
-
-  try {
-    const report = plan
-      ? await runtime.plan(event)
-      : await runtime.process(event);
-
-    return {
-      input,
-      event: report.event,
-      outcome: report.outcome ?? inferRoutingOutcome(report),
-      results: report.results,
-      success: report.success,
-    };
-  } catch (error) {
-    return {
-      input,
-      event: toEventReport(event),
-      outcome: "failed",
-      results: [],
-      success: false,
-      error: { stage: "runtime", message: errorMessage(error) },
-    };
-  }
-}
-
-function inputFailure(input: EventInput, error: unknown): EventExecutionReport {
-  return {
-    input,
-    outcome: "rejected",
-    results: [],
-    success: false,
-    error: { stage: "input", message: errorMessage(error) },
-  };
-}
-
-export async function loadConfig(path: string): Promise<Config> {
+async function loadConfig(path: string): Promise<Config> {
   const module = await import(toFileUrl(path).href);
-  if (!("default" in module)) {
-    throw new Error("Config module must have a default export.");
+  const config = module.default;
+  if (!config || !Array.isArray(config.routes)) {
+    throw new Error(`Config ${path} must default-export a Hooksmith Config.`);
   }
-
-  return module.default as Config;
+  return config as Config;
 }
 
-function inputSource(path: string): string {
-  return path === "-" ? "stdin" : path;
+function toFileUrl(path: string): URL {
+  if (/^[a-zA-Z][a-zA-Z\d+.-]*:/.test(path)) return new URL(path);
+  return new URL(`file://${Deno.cwd().replaceAll("\\", "/")}/${path.replaceAll("\\", "/")}`);
 }
 
-async function* readLines(
-  stream: ReadableStream<Uint8Array>,
-): AsyncIterable<string> {
+async function readEventsFromValue(value: unknown): Promise<Event[]> {
+  const text = JSON.stringify(value);
+  const temp = await Deno.makeTempFile({ suffix: ".json" });
+  try {
+    await Deno.writeTextFile(temp, text);
+    return await readEvents(temp);
+  } finally {
+    await Deno.remove(temp).catch(() => undefined);
+  }
+}
+
+async function* readLines(stream: ReadableStream<Uint8Array>): AsyncGenerator<string> {
   const reader = stream.pipeThrough(new TextDecoderStream()).getReader();
   let buffer = "";
-
   try {
     while (true) {
       const { value, done } = await reader.read();
       if (done) break;
       buffer += value;
-
-      let newline: number;
-      while ((newline = buffer.indexOf("\n")) >= 0) {
-        const line = buffer.slice(0, newline).replace(/\r$/, "");
+      let newline = buffer.indexOf("\n");
+      while (newline >= 0) {
+        yield buffer.slice(0, newline).replace(/\r$/, "");
         buffer = buffer.slice(newline + 1);
-        yield line;
+        newline = buffer.indexOf("\n");
       }
     }
-
     if (buffer.length > 0) yield buffer.replace(/\r$/, "");
   } finally {
     reader.releaseLock();
@@ -321,7 +261,7 @@ function renderLogValue(value: unknown): string {
   if (typeof value === "string") return value;
 
   try {
-    return JSON.stringify(value);
+    return JSON.stringify(value) ?? String(value);
   } catch {
     return String(value);
   }

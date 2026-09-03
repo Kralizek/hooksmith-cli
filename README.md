@@ -119,14 +119,6 @@ The integration scenarios use repository-owned fixtures under [`tests/fixtures`]
 
 - [`@hooksmith/cli`](packages/cli) — bounded runs, streaming, config loading, and report formatting.
 
-## Releases
-
-The release workflow owns the CLI package and Action release lifecycle. A manual release selects a semantic-version bump, updates workspace package versions, validates the repository, creates the immutable `vX.Y.Z` tag and GitHub release, publishes the JSR packages, uploads packed release assets, and moves the floating Action tags `vX` and `vX.Y`.
-
-Because this repository starts with the CLI already at `0.8.0`, the first release without an existing local tag uses the package manifest as its version baseline rather than restarting version history.
-
-Cross-repository orchestration is intentionally separate: automatic dependency bumps following Hooksmith runtime releases, and future Docker image publication, will be designed after the repository split is complete.
-
 ## License
 
 MIT

@@ -10,7 +10,11 @@ Deno.test("expands glob files in deterministic path order", async () => {
     await Deno.mkdir(join(root, "directory.json"));
 
     const matches = await expandInputExpression(join(root, "*.json"));
-    assertEquals(matches.map((path) => path.slice(root.length + 1)), ["a.json", "b.json"]);
+
+    assertEquals(matches.map((path) => path.slice(root.length + 1)), [
+      "a.json",
+      "b.json",
+    ]);
   } finally {
     await Deno.remove(root, { recursive: true });
   }
@@ -19,7 +23,10 @@ Deno.test("expands glob files in deterministic path order", async () => {
 Deno.test("zero-match globs expand to an empty input list", async () => {
   const root = await Deno.makeTempDir();
   try {
-    assertEquals(await expandInputExpression(join(root, "*.json")), []);
+    assertEquals(
+      await expandInputExpression(join(root, "*.json")),
+      [],
+    );
   } finally {
     await Deno.remove(root, { recursive: true });
   }

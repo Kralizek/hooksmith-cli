@@ -1,9 +1,16 @@
 import { expandGlob } from "@std/fs";
 import { isGlob, resolve } from "@std/path";
 
-export async function expandInputExpression(expression: string): Promise<string[]> {
-  if (expression === "-") return [expression];
-  if (!isGlob(expression)) return [resolve(expression)];
+export async function expandInputExpression(
+  expression: string,
+): Promise<string[]> {
+  if (expression === "-") {
+    return [expression];
+  }
+
+  if (!isGlob(expression)) {
+    return [resolve(expression)];
+  }
 
   const matches: string[] = [];
   for await (const entry of expandGlob(expression, { includeDirs: false })) {
@@ -14,7 +21,9 @@ export async function expandInputExpression(expression: string): Promise<string[
   return matches;
 }
 
-export async function expandInputExpressions(expressions: readonly string[]): Promise<string[]> {
+export async function expandInputExpressions(
+  expressions: readonly string[],
+): Promise<string[]> {
   const paths: string[] = [];
   for (const expression of expressions) {
     paths.push(...await expandInputExpression(expression));

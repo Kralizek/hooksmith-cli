@@ -14,7 +14,13 @@ Deno.test("generated Cliffy help describes the command surface", () => {
 });
 
 Deno.test("Cliffy exposes command-only help and option-only version", async () => {
-  for (const args of [["help"], ["help", "run"], ["help", "stream"]]) {
+  for (
+    const args of [
+      ["help"],
+      ["help", "run"],
+      ["help", "stream"],
+    ]
+  ) {
     const output = await runCli(args);
     assertEquals(output.code, 0, `Expected success for: ${args.join(" ")}`);
   }
@@ -27,10 +33,24 @@ Deno.test("Cliffy exposes command-only help and option-only version", async () =
 });
 
 Deno.test("Cliffy rejects unsupported meta-command forms", async () => {
-  for (const args of [[], ["--help"], ["-h"], ["run", "event.json", "--help"], ["stream", "--help"], ["help", "--help"], ["version"]]) {
+  for (
+    const args of [
+      [],
+      ["--help"],
+      ["-h"],
+      ["run", "event.json", "--help"],
+      ["stream", "--help"],
+      ["help", "--help"],
+      ["version"],
+    ]
+  ) {
     const output = await runCli(args);
     const invocation = args.length === 0 ? "<no args>" : args.join(" ");
-    assertEquals(output.code === 0, false, `Expected failure for: ${invocation}`);
+    assertEquals(
+      output.code === 0,
+      false,
+      `Expected failure for: ${invocation}`,
+    );
   }
 });
 
@@ -42,7 +62,11 @@ Deno.test("Cliffy reports parse errors without uncaught stack traces", async () 
   assertEquals(output.stderr.includes("Uncaught"), false);
 });
 
-async function runCli(args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
+async function runCli(args: string[]): Promise<{
+  code: number;
+  stdout: string;
+  stderr: string;
+}> {
   const output = await new Deno.Command(Deno.execPath(), {
     args: ["run", "-A", "packages/cli/mod.ts", ...args],
     stdout: "piped",

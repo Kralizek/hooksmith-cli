@@ -4,11 +4,16 @@ import { expandInputExpressions } from "./glob.ts";
 
 export { expandInputExpression, expandInputExpressions } from "./glob.ts";
 
-export async function resolveInputPaths(expressions: readonly string[]): Promise<string[]> {
+export async function resolveInputPaths(
+  expressions: readonly string[],
+): Promise<string[]> {
   return await expandInputExpressions(expressions);
 }
 
-export async function loadEventDocuments(path: string, readContent: (path: string) => Promise<string> = readEventContent): Promise<unknown[]> {
+export async function loadEventDocuments(
+  path: string,
+  readContent: (path: string) => Promise<string> = readEventContent,
+): Promise<unknown[]> {
   const content = await readContent(path);
   let documents: unknown[];
 
@@ -28,15 +33,23 @@ export async function loadEventDocuments(path: string, readContent: (path: strin
     }
   }
 
-  return documents.flatMap((document) => Array.isArray(document) ? document : [document]);
+  return documents.flatMap((document) =>
+    Array.isArray(document) ? document : [document]
+  );
 }
 
-export async function loadEventDocument(path: string, readContent: (path: string) => Promise<string> = readEventContent): Promise<unknown> {
+export async function loadEventDocument(
+  path: string,
+  readContent: (path: string) => Promise<string> = readEventContent,
+): Promise<unknown> {
   const documents = await loadEventDocuments(path, readContent);
   return documents.length === 1 ? documents[0] : documents;
 }
 
 async function readEventContent(path: string): Promise<string> {
-  if (path === "-") return await new Response(Deno.stdin.readable).text();
+  if (path === "-") {
+    return await new Response(Deno.stdin.readable).text();
+  }
+
   return await Deno.readTextFile(path);
 }

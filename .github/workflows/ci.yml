@@ -216,6 +216,29 @@ jobs:
           test "$HOOKSMITH_SUCCESS" = "false"
           test "$HOOKSMITH_MODE" = "run"
           test -n "$HOOKSMITH_REPORT_PATH"
+          test -f "$HOOKSMITH_REPORT_PATH"
+          jq -e '.success == false and .mode == "run"' "$HOOKSMITH_REPORT_PATH"
+
+      - name: Run Hooksmith with invalid config
+        id: failed-config
+        continue-on-error: true
+        uses: ./
+        with:
+          event: ./tests/fixtures/run-single.yaml
+          config: ./tests/fixtures/does-not-exist.ts
+      - name: Validate process-level failure outputs
+        if: always()
+        shell: bash
+        env:
+          HOOKSMITH_OUTCOME: ${{ steps.failed-config.outcome }}
+          HOOKSMITH_SUCCESS: ${{ steps.failed-config.outputs.success }}
+          HOOKSMITH_MODE: ${{ steps.failed-config.outputs.mode }}
+          HOOKSMITH_REPORT_PATH: ${{ steps.failed-config.outputs.report-path }}
+        run: |
+          test "$HOOKSMITH_OUTCOME" = "failure"
+          test "$HOOKSMITH_SUCCESS" = "false"
+          test "$HOOKSMITH_MODE" = "run"
+          test -z "$HOOKSMITH_REPORT_PATH"
 
       - name: Reject invalid plan input
         id: invalid-plan

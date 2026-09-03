@@ -3,8 +3,8 @@
     "./packages/cli"
   ],
   "imports": {
-    "@hooksmith/core": "jsr:@hooksmith/core@^0.8.0",
-    "@hooksmith/runtime": "jsr:@hooksmith/runtime@^0.8.0",
+    "@hooksmith/core": "jsr:@hooksmith/core@^0.8.1",
+    "@hooksmith/runtime": "jsr:@hooksmith/runtime@^0.8.1",
     "@cliffy/command": "jsr:@cliffy/command@^1.2.1",
     "@std/assert": "jsr:@std/assert@^1",
     "@std/fs": "jsr:@std/fs@^1",

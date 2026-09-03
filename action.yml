@@ -26,7 +26,7 @@ outputs:
     description: Hooksmith execution mode (run or plan).
     value: ${{ steps.run.outputs.mode }}
   report-path:
-    description: Absolute path to the JSON run report.
+    description: Absolute path to the generated JSON report, or empty when the CLI fails before producing one.
     value: ${{ steps.run.outputs.report-path }}
 
 runs:
@@ -98,6 +98,7 @@ runs:
         mkdir -p "$(dirname "$report_path")"
 
         success=false
+        output_report_path=""
 
         set +e
         deno run -A "$cli" "${args[@]}" > "$report_path"
@@ -105,17 +106,19 @@ runs:
         set -e
 
         if [[ -s "$report_path" ]]; then
-          values="$(
+          if values="$(
             deno eval --allow-read \
               'const report = JSON.parse(await Deno.readTextFile(Deno.args[0])); console.log(`${report.success}\t${report.mode}`);' \
-              "$report_path"
-          )"
-          IFS=$'\t' read -r success mode <<< "$values"
+              "$report_path" 2>/dev/null
+          )"; then
+            IFS=$'\t' read -r success mode <<< "$values"
+            output_report_path="$report_path"
+          fi
         fi
 
         echo "success=$success" >> "$GITHUB_OUTPUT"
         echo "mode=$mode" >> "$GITHUB_OUTPUT"
-        echo "report-path=$report_path" >> "$GITHUB_OUTPUT"
+        echo "report-path=$output_report_path" >> "$GITHUB_OUTPUT"
 
         exit "$status"
 

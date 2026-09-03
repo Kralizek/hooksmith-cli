@@ -20,6 +20,19 @@ jobs:
         run: deno task check
       - name: Validate package
         run: deno publish --dry-run
+      - name: Validate release assumptions
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          baseline="$(jq -r .version packages/cli/deno.json)"
+          [[ "$baseline" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+
+          while IFS= read -r member; do
+            manifest="$member/deno.json"
+            test -f "$manifest"
+            test "$(jq -r .version "$manifest")" = "$baseline"
+          done < <(jq -r '.workspace[]' deno.json)
 
   cli-run:
     runs-on: ubuntu-latest
@@ -49,6 +62,53 @@ jobs:
             [.events[].event.type] == ["page.published", "page.published", "page.published"] and
             [.events[].success] == [true, true, true]
           ' /tmp/hooksmith-run-report.json
+
+      - name: Reject missing input
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          deno run -A ./packages/cli/mod.ts \
+            run ./tests/fixtures/does-not-exist.yaml \
+            --config ./tests/fixtures/hooksmith.config.ts \
+            --format json \
+            > /tmp/hooksmith-missing-report.json
+          status=$?
+          set -e
+
+          test "$status" -eq 1
+          jq -e '
+            .success == false and
+            .mode == "run" and
+            (.events | length) == 1 and
+            .events[0].outcome == "rejected"
+          ' /tmp/hooksmith-missing-report.json
+
+      - name: Validate empty input behavior
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          set +e
+          deno run -A ./packages/cli/mod.ts \
+            run './tests/fixtures/missing-*.json' \
+            --config ./tests/fixtures/hooksmith.config.ts \
+            --format json \
+            > /tmp/hooksmith-empty-report.json
+          status=$?
+          set -e
+
+          test "$status" -eq 1
+          jq -e '.success == false and .events[0].outcome == "rejected"' /tmp/hooksmith-empty-report.json
+
+          deno run -A ./packages/cli/mod.ts \
+            run './tests/fixtures/missing-*.json' \
+            --config ./tests/fixtures/hooksmith.config.ts \
+            --format json \
+            --allow-empty \
+            > /tmp/hooksmith-empty-allowed-report.json
+
+          jq -e '.success == true and (.events | length) == 0' /tmp/hooksmith-empty-allowed-report.json
 
   cli-stream:
     runs-on: ubuntu-latest
@@ -84,6 +144,8 @@ jobs:
           - ubuntu-latest
           - windows-latest
     runs-on: ${{ matrix.os }}
+    env:
+      HOOKSMITH_CLI_ENTRYPOINT: ${{ github.workspace }}/packages/cli/mod.ts
     steps:
       - uses: actions/checkout@v7
       - name: Run Hooksmith through the Action
@@ -113,6 +175,7 @@ jobs:
               "message": "Processed page.published"
             }]
           ' "$HOOKSMITH_REPORT_PATH"
+
       - name: Plan Hooksmith with custom report path
         id: hooksmith-plan
         uses: ./
@@ -132,3 +195,39 @@ jobs:
           test "$HOOKSMITH_MODE" = "plan"
           test -f "$HOOKSMITH_REPORT_PATH"
           jq -e '.success == true and .mode == "plan"' "$HOOKSMITH_REPORT_PATH"
+
+      - name: Run Hooksmith with invalid input
+        id: failed-hooksmith
+        continue-on-error: true
+        uses: ./
+        with:
+          event: ./tests/fixtures/does-not-exist.yaml
+          config: ./tests/fixtures/hooksmith.config.ts
+      - name: Validate failure outputs
+        if: always()
+        shell: bash
+        env:
+          HOOKSMITH_OUTCOME: ${{ steps.failed-hooksmith.outcome }}
+          HOOKSMITH_SUCCESS: ${{ steps.failed-hooksmith.outputs.success }}
+          HOOKSMITH_MODE: ${{ steps.failed-hooksmith.outputs.mode }}
+          HOOKSMITH_REPORT_PATH: ${{ steps.failed-hooksmith.outputs.report-path }}
+        run: |
+          test "$HOOKSMITH_OUTCOME" = "failure"
+          test "$HOOKSMITH_SUCCESS" = "false"
+          test "$HOOKSMITH_MODE" = "run"
+          test -n "$HOOKSMITH_REPORT_PATH"
+
+      - name: Reject invalid plan input
+        id: invalid-plan
+        continue-on-error: true
+        uses: ./
+        with:
+          event: ./tests/fixtures/run-single.yaml
+          config: ./tests/fixtures/hooksmith.config.ts
+          plan: maybe
+      - name: Validate invalid plan failure
+        if: always()
+        shell: bash
+        env:
+          HOOKSMITH_OUTCOME: ${{ steps.invalid-plan.outcome }}
+        run: test "$HOOKSMITH_OUTCOME" = "failure"

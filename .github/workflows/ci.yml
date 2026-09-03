@@ -17,7 +17,15 @@ jobs:
         run: deno fmt --check
       - name: Lint
         run: deno lint
-      - name: Test
-        run: deno test -A
+      - name: Test args
+        run: deno test -A packages/cli/args_test.ts
+      - name: Test glob
+        run: deno test -A packages/cli/glob_test.ts
+      - name: Test input
+        run: deno test -A packages/cli/input_test.ts
+      - name: Test module
+        run: deno test -A packages/cli/mod_test.ts
+      - name: Test report
+        run: deno test -A packages/cli/report_test.ts
       - name: Validate package
         run: deno publish --dry-run

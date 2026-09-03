@@ -82,7 +82,8 @@ runs:
         esac
 
         if [[ -z "$HOOKSMITH_REPORT_PATH" ]]; then
-          raw_report_path="$RUNNER_TEMP/hooksmith/report.json"
+          report_id="$(deno eval 'console.log(crypto.randomUUID())')"
+          raw_report_path="$RUNNER_TEMP/hooksmith/report-${report_id}.json"
         else
           raw_report_path="$HOOKSMITH_REPORT_PATH"
         fi

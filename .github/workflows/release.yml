@@ -12,17 +12,13 @@ on:
           - major
           - minor
           - patch
-  release:
-    types:
-      - published
 
 concurrency:
-  group: release-${{ github.event_name }}
+  group: release
   cancel-in-progress: false
 
 jobs:
   create-release:
-    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -40,45 +36,73 @@ jobs:
           deno-version: v2.x
           cache: true
 
-      - name: Calculate version
+      - name: Calculate or resume version
         id: version
         shell: bash
         run: |
           set -euo pipefail
 
+          master_sha="$(git rev-parse HEAD)"
           latest_tag="$(git tag --list 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1 || true)"
+          resume=false
+          previous_tag=""
 
-          if [[ -z "$latest_tag" ]]; then
-            current="$(jq -r .version packages/cli/deno.json)"
-          else
-            current="${latest_tag#v}"
+          if [[ -n "$latest_tag" ]]; then
+            tag_commit="$(git rev-list -n 1 "$latest_tag")"
+            tag_parent="$(git rev-parse "$tag_commit^" 2>/dev/null || true)"
+            tag_version="${latest_tag#v}"
+            manifest_version="$(git show "$latest_tag:packages/cli/deno.json" | jq -r .version 2>/dev/null || true)"
+
+            if [[ "$tag_parent" == "$master_sha" && "$manifest_version" == "$tag_version" ]]; then
+              version="$tag_version"
+              resume=true
+              previous_tag="$(git tag --list 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 2 | head -n 1 || true)"
+              echo "Resuming $latest_tag"
+            fi
           fi
 
-          IFS='.' read -r major minor patch <<< "$current"
+          if [[ "$resume" != "true" ]]; then
+            if [[ -z "$latest_tag" ]]; then
+              current="$(jq -r .version packages/cli/deno.json)"
+            else
+              current="${latest_tag#v}"
+              previous_tag="$latest_tag"
+            fi
 
-          case "${{ inputs.bump }}" in
-            major)
-              major=$((major + 1))
-              minor=0
-              patch=0
-              ;;
-            minor)
-              minor=$((minor + 1))
-              patch=0
-              ;;
-            patch)
-              patch=$((patch + 1))
-              ;;
-          esac
+            IFS='.' read -r major minor patch <<< "$current"
 
-          version="${major}.${minor}.${patch}"
+            case "${{ inputs.bump }}" in
+              major)
+                major=$((major + 1))
+                minor=0
+                patch=0
+                ;;
+              minor)
+                minor=$((minor + 1))
+                patch=0
+                ;;
+              patch)
+                patch=$((patch + 1))
+                ;;
+            esac
+
+            version="${major}.${minor}.${patch}"
+            echo "Releasing v$version"
+          fi
 
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "tag=v$version" >> "$GITHUB_OUTPUT"
-          echo "previous_tag=$latest_tag" >> "$GITHUB_OUTPUT"
-          echo "Releasing v$version"
+          echo "previous_tag=$previous_tag" >> "$GITHUB_OUTPUT"
+          echo "resume=$resume" >> "$GITHUB_OUTPUT"
+
+      - name: Resume release commit
+        if: steps.version.outputs.resume == 'true'
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: git checkout "$TAG"
 
       - name: Set package versions
+        if: steps.version.outputs.resume != 'true'
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
@@ -95,6 +119,7 @@ jobs:
           '
 
       - name: Create release commit
+        if: steps.version.outputs.resume != 'true'
         env:
           TAG: ${{ steps.version.outputs.tag }}
         run: |
@@ -117,27 +142,37 @@ jobs:
           deno task check
           deno publish --dry-run
 
-      - name: Create immutable version tag
+      - name: Create or reuse immutable version tag
         env:
           TAG: ${{ steps.version.outputs.tag }}
         run: |
           set -euo pipefail
 
           if git rev-parse "$TAG" >/dev/null 2>&1; then
-            echo "Tag $TAG already exists."
-            exit 1
+            tagged_commit="$(git rev-parse "$TAG^{commit}")"
+            head_commit="$(git rev-parse HEAD)"
+            if [[ "$tagged_commit" != "$head_commit" ]]; then
+              echo "Tag $TAG exists but points to $tagged_commit instead of $head_commit." >&2
+              exit 1
+            fi
+            echo "Reusing $TAG."
+          else
+            git tag "$TAG" HEAD
+            git push origin "$TAG"
           fi
 
-          git tag "$TAG" HEAD
-          git push origin "$TAG"
-
-      - name: Create draft GitHub release
+      - name: Create or reuse draft GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.version.outputs.tag }}
           PREVIOUS_TAG: ${{ steps.version.outputs.previous_tag }}
         run: |
           set -euo pipefail
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Reusing existing release $TAG."
+            exit 0
+          fi
 
           args=(
             "$TAG"
@@ -147,7 +182,7 @@ jobs:
             --draft
           )
 
-          if [[ -n "$PREVIOUS_TAG" ]]; then
+          if [[ -n "$PREVIOUS_TAG" && "$PREVIOUS_TAG" != "$TAG" ]]; then
             args+=(--notes-start-tag "$PREVIOUS_TAG")
           fi
 
@@ -155,36 +190,15 @@ jobs:
 
   publish:
     needs: create-release
-    if: >-
-      always() &&
-      ((github.event_name == 'workflow_dispatch' && needs.create-release.result == 'success') ||
-       (github.event_name == 'release' && github.event.action == 'published'))
     runs-on: ubuntu-latest
     permissions:
       contents: write
       id-token: write
 
     steps:
-      - name: Resolve release tag
-        id: release
-        shell: bash
-        env:
-          MANUAL_TAG: ${{ needs.create-release.outputs.tag }}
-          PUBLISHED_TAG: ${{ github.event.release.tag_name }}
-        run: |
-          set -euo pipefail
-
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            tag="$MANUAL_TAG"
-          else
-            tag="$PUBLISHED_TAG"
-          fi
-
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-
       - uses: actions/checkout@v7
         with:
-          ref: ${{ steps.release.outputs.tag }}
+          ref: ${{ needs.create-release.outputs.tag }}
           fetch-depth: 0
 
       - uses: denoland/setup-deno@v2
@@ -196,7 +210,7 @@ jobs:
         id: version
         shell: bash
         env:
-          TAG: ${{ steps.release.outputs.tag }}
+          TAG: ${{ needs.create-release.outputs.tag }}
         run: |
           set -euo pipefail
 
@@ -247,12 +261,28 @@ jobs:
       - name: Upload release assets
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.release.outputs.tag }}
+          TAG: ${{ needs.create-release.outputs.tag }}
           ASSET_DIR: ${{ runner.temp }}/hooksmith-cli-dist
         run: gh release upload "$TAG" "$ASSET_DIR"/*.tgz --clobber
 
       - name: Publish packages
-        run: deno publish
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          while IFS= read -r member; do
+            name="$(jq -r .name "$member/deno.json")"
+            specifier="jsr:${name}@${VERSION}"
+
+            if deno info "$specifier" >/dev/null 2>&1; then
+              echo "$specifier is already published; skipping."
+              continue
+            fi
+
+            (cd "$member" && deno publish)
+          done < <(jq -r '.workspace[]' deno.json)
 
       - name: Move action version tags
         env:
@@ -266,8 +296,13 @@ jobs:
           git push --force origin "$MAJOR_TAG" "$MINOR_TAG"
 
       - name: Publish GitHub release
-        if: github.event_name == 'workflow_dispatch'
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.release.outputs.tag }}
-        run: gh release edit "$TAG" --draft=false
+          TAG: ${{ needs.create-release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if [[ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" == "true" ]]; then
+            gh release edit "$TAG" --draft=false
+          else
+            echo "Release $TAG is already published."
+          fi

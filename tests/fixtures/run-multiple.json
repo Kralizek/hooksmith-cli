@@ -1,0 +1,16 @@
+[
+  {
+    "type": "page.published",
+    "timestamp": "2026-08-31T20:01:00Z",
+    "source": { "kind": "website", "id": "example.com" },
+    "subject": { "kind": "page", "id": "/multiple-1" },
+    "data": { "title": "Multiple event 1" }
+  },
+  {
+    "type": "page.published",
+    "timestamp": "2026-08-31T20:02:00Z",
+    "source": { "kind": "website", "id": "example.com" },
+    "subject": { "kind": "page", "id": "/multiple-2" },
+    "data": { "title": "Multiple event 2" }
+  }
+]

@@ -42,22 +42,24 @@ jobs:
         run: |
           set -euo pipefail
 
-          master_sha="$(git rev-parse HEAD)"
           latest_tag="$(git tag --list 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1 || true)"
           resume=false
           previous_tag=""
 
           if [[ -n "$latest_tag" ]]; then
-            tag_commit="$(git rev-list -n 1 "$latest_tag")"
-            tag_parent="$(git rev-parse "$tag_commit^" 2>/dev/null || true)"
             tag_version="${latest_tag#v}"
             manifest_version="$(git show "$latest_tag:packages/cli/deno.json" | jq -r .version 2>/dev/null || true)"
 
-            if [[ "$tag_parent" == "$master_sha" && "$manifest_version" == "$tag_version" ]]; then
-              version="$tag_version"
-              resume=true
-              previous_tag="$(git tag --list 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 2 | head -n 1 || true)"
-              echo "Resuming $latest_tag"
+            if [[ "$manifest_version" == "$tag_version" ]]; then
+              package_name="$(git show "$latest_tag:packages/cli/deno.json" | jq -r .name)"
+              package_meta="$(curl -fsSL -H 'Accept: application/json' "https://jsr.io/${package_name}/meta.json")"
+
+              if ! jq -e --arg version "$tag_version" '.versions[$version] != null' <<< "$package_meta" >/dev/null; then
+                version="$tag_version"
+                resume=true
+                previous_tag="$(git tag --list 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 2 | head -n 1 || true)"
+                echo "Resuming incomplete release $latest_tag because ${package_name}@${tag_version} is not published on JSR."
+              fi
             fi
           fi
 
@@ -274,10 +276,10 @@ jobs:
 
           while IFS= read -r member; do
             name="$(jq -r .name "$member/deno.json")"
-            specifier="jsr:${name}@${VERSION}"
+            package_meta="$(curl -fsSL -H 'Accept: application/json' "https://jsr.io/${name}/meta.json")"
 
-            if deno info "$specifier" >/dev/null 2>&1; then
-              echo "$specifier is already published; skipping."
+            if jq -e --arg version "$VERSION" '.versions[$version] != null' <<< "$package_meta" >/dev/null; then
+              echo "jsr:${name}@${VERSION} is already published; skipping."
               continue
             fi
 

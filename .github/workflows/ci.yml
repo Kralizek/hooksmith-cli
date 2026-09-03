@@ -4,8 +4,11 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
-  check:
+  validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -17,3 +20,115 @@ jobs:
         run: deno task check
       - name: Validate package
         run: deno publish --dry-run
+
+  cli-run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+          cache: true
+      - name: Validate bounded multi-event mode
+        shell: bash
+        run: |
+          set -euo pipefail
+          deno run -A ./packages/cli/mod.ts \
+            run \
+              ./tests/fixtures/run-single.yaml \
+              ./tests/fixtures/run-multiple.json \
+            --config ./tests/fixtures/hooksmith.config.ts \
+            --format json \
+            > /tmp/hooksmith-run-report.json
+
+          jq -e '
+            .success == true and
+            .mode == "run" and
+            (.events | length) == 3 and
+            [.events[].input.index] == [1, 2, 3] and
+            [.events[].event.type] == ["page.published", "page.published", "page.published"] and
+            [.events[].success] == [true, true, true]
+          ' /tmp/hooksmith-run-report.json
+
+  cli-stream:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+          cache: true
+      - name: Validate NDJSON stream mode
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat ./tests/fixtures/stream.ndjson \
+            | deno run -A ./packages/cli/mod.ts stream \
+                --config ./tests/fixtures/hooksmith.config.ts \
+            > /tmp/hooksmith-stream.ndjson
+
+          jq -s -e '
+            length == 3 and
+            .[0].success == true and
+            .[0].events[0].event.type == "page.published" and
+            .[1].success == false and
+            .[1].events[0].outcome == "rejected" and
+            .[2].success == true and
+            .[2].events[0].event.subject.id == "/stream-2"
+          ' /tmp/hooksmith-stream.ndjson
+
+  action:
+    strategy:
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Run Hooksmith through the Action
+        id: hooksmith
+        uses: ./
+        with:
+          event: ./tests/fixtures/run-single.yaml
+          config: ./tests/fixtures/hooksmith.config.ts
+      - name: Validate Action outputs and report
+        shell: bash
+        env:
+          HOOKSMITH_SUCCESS: ${{ steps.hooksmith.outputs.success }}
+          HOOKSMITH_MODE: ${{ steps.hooksmith.outputs.mode }}
+          HOOKSMITH_REPORT_PATH: ${{ steps.hooksmith.outputs.report-path }}
+        run: |
+          test "$HOOKSMITH_SUCCESS" = "true"
+          test "$HOOKSMITH_MODE" = "run"
+          test -f "$HOOKSMITH_REPORT_PATH"
+          jq -e '
+            .success == true and
+            .mode == "run" and
+            (.events | length) == 1 and
+            .events[0].results == [{
+              "route": "all-events",
+              "listener": "capture-event",
+              "status": "success",
+              "message": "Processed page.published"
+            }]
+          ' "$HOOKSMITH_REPORT_PATH"
+      - name: Plan Hooksmith with custom report path
+        id: hooksmith-plan
+        uses: ./
+        with:
+          event: ./tests/fixtures/run-single.yaml
+          config: ./tests/fixtures/hooksmith.config.ts
+          plan: true
+          report-path: ${{ runner.temp }}/hooksmith/custom-plan-report.json
+      - name: Validate plan outputs
+        shell: bash
+        env:
+          HOOKSMITH_SUCCESS: ${{ steps.hooksmith-plan.outputs.success }}
+          HOOKSMITH_MODE: ${{ steps.hooksmith-plan.outputs.mode }}
+          HOOKSMITH_REPORT_PATH: ${{ steps.hooksmith-plan.outputs.report-path }}
+        run: |
+          test "$HOOKSMITH_SUCCESS" = "true"
+          test "$HOOKSMITH_MODE" = "plan"
+          test -f "$HOOKSMITH_REPORT_PATH"
+          jq -e '.success == true and .mode == "plan"' "$HOOKSMITH_REPORT_PATH"

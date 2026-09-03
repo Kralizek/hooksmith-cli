@@ -17,6 +17,8 @@ jobs:
         run: deno fmt --check
       - name: Lint
         run: deno lint
+      - name: Type check CLI
+        run: deno check packages/cli/mod.ts
       - name: Test generated help
         run: deno test -A packages/cli/args_test.ts --filter "generated Cliffy help"
       - name: Test help and version commands

@@ -1,0 +1,256 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+          cache: true
+      - name: Check
+        run: deno task check
+      - name: Validate package
+        run: deno publish --dry-run
+      - name: Validate release assumptions
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          baseline="$(jq -r .version packages/cli/deno.json)"
+          [[ "$baseline" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+
+          while IFS= read -r member; do
+            manifest="$member/deno.json"
+            test -f "$manifest"
+            test "$(jq -r .version "$manifest")" = "$baseline"
+          done < <(jq -r '.workspace[]' deno.json)
+
+  cli-run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+          cache: true
+      - name: Validate bounded multi-event mode
+        shell: bash
+        run: |
+          set -euo pipefail
+          deno run -A ./packages/cli/mod.ts \
+            run \
+              ./tests/fixtures/run-single.yaml \
+              ./tests/fixtures/run-multiple.json \
+            --config ./tests/fixtures/hooksmith.config.ts \
+            --format json \
+            > /tmp/hooksmith-run-report.json
+
+          jq -e '
+            .success == true and
+            .mode == "run" and
+            (.events | length) == 3 and
+            [.events[].input.index] == [1, 2, 3] and
+            [.events[].event.type] == ["page.published", "page.published", "page.published"] and
+            [.events[].success] == [true, true, true]
+          ' /tmp/hooksmith-run-report.json
+
+      - name: Reject missing input
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          deno run -A ./packages/cli/mod.ts \
+            run ./tests/fixtures/does-not-exist.yaml \
+            --config ./tests/fixtures/hooksmith.config.ts \
+            --format json \
+            > /tmp/hooksmith-missing-report.json
+          status=$?
+          set -e
+
+          test "$status" -eq 1
+          jq -e '
+            .success == false and
+            .mode == "run" and
+            (.events | length) == 1 and
+            .events[0].outcome == "rejected"
+          ' /tmp/hooksmith-missing-report.json
+
+      - name: Validate empty input behavior
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          set +e
+          deno run -A ./packages/cli/mod.ts \
+            run './tests/fixtures/missing-*.json' \
+            --config ./tests/fixtures/hooksmith.config.ts \
+            --format json \
+            > /tmp/hooksmith-empty-report.json
+          status=$?
+          set -e
+
+          test "$status" -eq 1
+          jq -e '.success == false and .events[0].outcome == "rejected"' /tmp/hooksmith-empty-report.json
+
+          deno run -A ./packages/cli/mod.ts \
+            run './tests/fixtures/missing-*.json' \
+            --config ./tests/fixtures/hooksmith.config.ts \
+            --format json \
+            --allow-empty \
+            > /tmp/hooksmith-empty-allowed-report.json
+
+          jq -e '.success == true and (.events | length) == 0' /tmp/hooksmith-empty-allowed-report.json
+
+  cli-stream:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+          cache: true
+      - name: Validate NDJSON stream mode
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat ./tests/fixtures/stream.ndjson \
+            | deno run -A ./packages/cli/mod.ts stream \
+                --config ./tests/fixtures/hooksmith.config.ts \
+            > /tmp/hooksmith-stream.ndjson
+
+          jq -s -e '
+            length == 3 and
+            .[0].success == true and
+            .[0].events[0].event.type == "page.published" and
+            .[1].success == false and
+            .[1].events[0].outcome == "rejected" and
+            .[2].success == true and
+            .[2].events[0].event.subject.id == "/stream-2"
+          ' /tmp/hooksmith-stream.ndjson
+
+  action:
+    strategy:
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+    runs-on: ${{ matrix.os }}
+    env:
+      HOOKSMITH_CLI_ENTRYPOINT: ${{ github.workspace }}/packages/cli/mod.ts
+    steps:
+      - uses: actions/checkout@v7
+      - name: Run Hooksmith through the Action
+        id: hooksmith
+        uses: ./
+        with:
+          event: ./tests/fixtures/run-single.yaml
+          config: ./tests/fixtures/hooksmith.config.ts
+      - name: Validate Action outputs and report
+        shell: bash
+        env:
+          HOOKSMITH_SUCCESS: ${{ steps.hooksmith.outputs.success }}
+          HOOKSMITH_MODE: ${{ steps.hooksmith.outputs.mode }}
+          HOOKSMITH_REPORT_PATH: ${{ steps.hooksmith.outputs.report-path }}
+        run: |
+          test "$HOOKSMITH_SUCCESS" = "true"
+          test "$HOOKSMITH_MODE" = "run"
+          test -f "$HOOKSMITH_REPORT_PATH"
+          jq -e '
+            .success == true and
+            .mode == "run" and
+            (.events | length) == 1 and
+            .events[0].results == [{
+              "route": "all-events",
+              "listener": "capture-event",
+              "status": "success",
+              "message": "Processed page.published"
+            }]
+          ' "$HOOKSMITH_REPORT_PATH"
+
+      - name: Plan Hooksmith with custom report path
+        id: hooksmith-plan
+        uses: ./
+        with:
+          event: ./tests/fixtures/run-single.yaml
+          config: ./tests/fixtures/hooksmith.config.ts
+          plan: true
+          report-path: ${{ runner.temp }}/hooksmith/custom-plan-report.json
+      - name: Validate plan outputs
+        shell: bash
+        env:
+          HOOKSMITH_SUCCESS: ${{ steps.hooksmith-plan.outputs.success }}
+          HOOKSMITH_MODE: ${{ steps.hooksmith-plan.outputs.mode }}
+          HOOKSMITH_REPORT_PATH: ${{ steps.hooksmith-plan.outputs.report-path }}
+        run: |
+          test "$HOOKSMITH_SUCCESS" = "true"
+          test "$HOOKSMITH_MODE" = "plan"
+          test -f "$HOOKSMITH_REPORT_PATH"
+          jq -e '.success == true and .mode == "plan"' "$HOOKSMITH_REPORT_PATH"
+
+      - name: Run Hooksmith with invalid input
+        id: failed-hooksmith
+        continue-on-error: true
+        uses: ./
+        with:
+          event: ./tests/fixtures/does-not-exist.yaml
+          config: ./tests/fixtures/hooksmith.config.ts
+      - name: Validate failure outputs
+        if: always()
+        shell: bash
+        env:
+          HOOKSMITH_OUTCOME: ${{ steps.failed-hooksmith.outcome }}
+          HOOKSMITH_SUCCESS: ${{ steps.failed-hooksmith.outputs.success }}
+          HOOKSMITH_MODE: ${{ steps.failed-hooksmith.outputs.mode }}
+          HOOKSMITH_REPORT_PATH: ${{ steps.failed-hooksmith.outputs.report-path }}
+        run: |
+          test "$HOOKSMITH_OUTCOME" = "failure"
+          test "$HOOKSMITH_SUCCESS" = "false"
+          test "$HOOKSMITH_MODE" = "run"
+          test -n "$HOOKSMITH_REPORT_PATH"
+          test -f "$HOOKSMITH_REPORT_PATH"
+          jq -e '.success == false and .mode == "run"' "$HOOKSMITH_REPORT_PATH"
+
+      - name: Run Hooksmith with invalid config
+        id: failed-config
+        continue-on-error: true
+        uses: ./
+        with:
+          event: ./tests/fixtures/run-single.yaml
+          config: ./tests/fixtures/does-not-exist.ts
+      - name: Validate process-level failure outputs
+        if: always()
+        shell: bash
+        env:
+          HOOKSMITH_OUTCOME: ${{ steps.failed-config.outcome }}
+          HOOKSMITH_SUCCESS: ${{ steps.failed-config.outputs.success }}
+          HOOKSMITH_MODE: ${{ steps.failed-config.outputs.mode }}
+          HOOKSMITH_REPORT_PATH: ${{ steps.failed-config.outputs.report-path }}
+        run: |
+          test "$HOOKSMITH_OUTCOME" = "failure"
+          test "$HOOKSMITH_SUCCESS" = "false"
+          test "$HOOKSMITH_MODE" = "run"
+          test -z "$HOOKSMITH_REPORT_PATH"
+
+      - name: Reject invalid plan input
+        id: invalid-plan
+        continue-on-error: true
+        uses: ./
+        with:
+          event: ./tests/fixtures/run-single.yaml
+          config: ./tests/fixtures/hooksmith.config.ts
+          plan: maybe
+      - name: Validate invalid plan failure
+        if: always()
+        shell: bash
+        env:
+          HOOKSMITH_OUTCOME: ${{ steps.invalid-plan.outcome }}
+        run: test "$HOOKSMITH_OUTCOME" = "failure"

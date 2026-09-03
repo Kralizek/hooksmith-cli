@@ -1,0 +1,127 @@
+name: Run Hooksmith
+description: Run a Hooksmith event using the CLI version that matches this action release.
+author: Renato Golia
+
+inputs:
+  event:
+    description: Path to the YAML or JSON event document, relative to the workspace.
+    required: true
+  config:
+    description: Path to the Hooksmith configuration module, relative to the workspace.
+    required: false
+    default: hooksmith.config.ts
+  plan:
+    description: Evaluate routing without invoking listeners.
+    required: false
+    default: "false"
+  report-path:
+    description: Optional path where the JSON run report is written, relative to the workspace unless absolute.
+    required: false
+
+outputs:
+  success:
+    description: Whether the Hooksmith run succeeded.
+    value: ${{ steps.run.outputs.success }}
+  mode:
+    description: Hooksmith execution mode (run or plan).
+    value: ${{ steps.run.outputs.mode }}
+  report-path:
+    description: Absolute path to the generated JSON report, or empty when the CLI fails before producing one.
+    value: ${{ steps.run.outputs.report-path }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Deno
+      uses: denoland/setup-deno@v2
+      with:
+        deno-version: v2.x
+        cache: true
+
+    - name: Run Hooksmith
+      id: run
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      env:
+        HOOKSMITH_EVENT: ${{ inputs.event }}
+        HOOKSMITH_CONFIG: ${{ inputs.config }}
+        HOOKSMITH_PLAN: ${{ inputs.plan }}
+        HOOKSMITH_REPORT_PATH: ${{ inputs.report-path }}
+      run: |
+        set -euo pipefail
+
+        if [[ -n "${HOOKSMITH_CLI_ENTRYPOINT:-}" ]]; then
+          cli="$HOOKSMITH_CLI_ENTRYPOINT"
+        else
+          version="$(
+            deno eval --allow-read \
+              'const manifest = JSON.parse(await Deno.readTextFile(Deno.args[0])); console.log(manifest.version);' \
+              "$GITHUB_ACTION_PATH/packages/cli/deno.json"
+          )"
+          cli="jsr:@hooksmith/cli@${version}"
+        fi
+
+        args=(
+          run "$HOOKSMITH_EVENT"
+          --config "$HOOKSMITH_CONFIG"
+          --format json
+        )
+
+        case "$HOOKSMITH_PLAN" in
+          true)
+            args+=(--plan)
+            mode=plan
+            ;;
+          false)
+            mode=run
+            ;;
+          *)
+            echo "::error::plan must be either 'true' or 'false'."
+            exit 1
+            ;;
+        esac
+
+        if [[ -z "$HOOKSMITH_REPORT_PATH" ]]; then
+          report_id="$(deno eval 'console.log(crypto.randomUUID())')"
+          raw_report_path="$RUNNER_TEMP/hooksmith/report-${report_id}.json"
+        else
+          raw_report_path="$HOOKSMITH_REPORT_PATH"
+        fi
+
+        report_path="$(
+          deno eval \
+            'import { isAbsolute, resolve } from "node:path"; const [path, workspace] = Deno.args; const resolved = isAbsolute(path) ? path : resolve(workspace, path); console.log(Deno.build.os === "windows" ? resolved.replaceAll("\\", "/") : resolved);' \
+            "$raw_report_path" \
+            "$GITHUB_WORKSPACE"
+        )"
+
+        mkdir -p "$(dirname "$report_path")"
+
+        success=false
+        output_report_path=""
+
+        set +e
+        deno run -A "$cli" "${args[@]}" > "$report_path"
+        status=$?
+        set -e
+
+        if [[ -s "$report_path" ]]; then
+          if values="$(
+            deno eval --allow-read \
+              'const report = JSON.parse(await Deno.readTextFile(Deno.args[0])); console.log(`${report.success}\t${report.mode}`);' \
+              "$report_path" 2>/dev/null
+          )"; then
+            IFS=$'\t' read -r success mode <<< "$values"
+            output_report_path="$report_path"
+          fi
+        fi
+
+        echo "success=$success" >> "$GITHUB_OUTPUT"
+        echo "mode=$mode" >> "$GITHUB_OUTPUT"
+        echo "report-path=$output_report_path" >> "$GITHUB_OUTPUT"
+
+        exit "$status"
+
+branding:
+  icon: zap
+  color: gray-dark

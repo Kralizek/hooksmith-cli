@@ -104,14 +104,15 @@ Hooksmith CLI tracks the latest stable Deno 2.x release in CI.
 
 ```sh
 deno task check
+deno task cli -- help
 ```
 
 The CI pipeline validates four layers independently:
 
 1. formatting, linting, unit tests, and JSR publishability;
-2. bounded multi-event CLI execution;
+2. bounded multi-event CLI execution and failure behavior;
 3. NDJSON streaming behavior;
-4. the GitHub Action on both Linux and Windows, including run and plan outputs.
+4. the GitHub Action on both Linux and Windows, including run, plan, and failure outputs.
 
 The integration scenarios use repository-owned fixtures under [`tests/fixtures`](tests/fixtures).
 

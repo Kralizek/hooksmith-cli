@@ -20,5 +20,12 @@
       "README.md"
     ]
   },
+  "minimumDependencyAge": {
+    "age": "P1D",
+    "exclude": [
+      "jsr:@hooksmith/core",
+      "jsr:@hooksmith/runtime"
+    ]
+  },
   "lock": false
 }

@@ -13,27 +13,7 @@ jobs:
         with:
           deno-version: v2.x
           cache: true
-      - name: Format
-        run: deno fmt --check
-      - name: Lint
-        run: deno lint
-      - name: Type check CLI
-        run: deno check packages/cli/mod.ts
-      - name: Test generated help
-        run: deno test -A packages/cli/args_test.ts --filter "generated Cliffy help"
-      - name: Test help and version commands
-        run: deno test -A packages/cli/args_test.ts --filter "Cliffy exposes"
-      - name: Test unsupported meta-command forms
-        run: deno test -A packages/cli/args_test.ts --filter "Cliffy rejects"
-      - name: Test parse errors
-        run: deno test -A packages/cli/args_test.ts --filter "Cliffy reports"
-      - name: Test glob
-        run: deno test -A packages/cli/glob_test.ts
-      - name: Test input
-        run: deno test -A packages/cli/input_test.ts
-      - name: Test module
-        run: deno test -A packages/cli/mod_test.ts
-      - name: Test report
-        run: deno test -A packages/cli/report_test.ts
+      - name: Check
+        run: deno task check
       - name: Validate package
         run: deno publish --dry-run

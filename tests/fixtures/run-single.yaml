@@ -1,0 +1,10 @@
+type: page.published
+timestamp: 2026-08-31T20:00:00Z
+source:
+  kind: website
+  id: example.com
+subject:
+  kind: page
+  id: /single
+data:
+  title: Single event

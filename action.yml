@@ -50,15 +50,12 @@ runs:
       run: |
         set -euo pipefail
 
+        deno_args=()
         if [[ -n "${HOOKSMITH_CLI_ENTRYPOINT:-}" ]]; then
           cli="$HOOKSMITH_CLI_ENTRYPOINT"
         else
-          version="$(
-            deno eval --allow-read \
-              'const manifest = JSON.parse(await Deno.readTextFile(Deno.args[0])); console.log(manifest.version);' \
-              "$GITHUB_ACTION_PATH/packages/cli/deno.json"
-          )"
-          cli="jsr:@hooksmith/cli@${version}"
+          cli="$GITHUB_ACTION_PATH/packages/cli/mod.ts"
+          deno_args+=(--config "$GITHUB_ACTION_PATH/deno.json")
         fi
 
         args=(
@@ -101,7 +98,7 @@ runs:
         output_report_path=""
 
         set +e
-        deno run -A "$cli" "${args[@]}" > "$report_path"
+        deno run "${deno_args[@]}" -A "$cli" "${args[@]}" > "$report_path"
         status=$?
         set -e
 

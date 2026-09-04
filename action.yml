@@ -55,7 +55,7 @@ runs:
       run: |
         set -euo pipefail
 
-        deno_args=(--minimum-dependency-age "$HOOKSMITH_MINIMUM_DEPENDENCY_AGE")
+        deno_args=(--quiet --minimum-dependency-age "$HOOKSMITH_MINIMUM_DEPENDENCY_AGE")
         if [[ -n "${HOOKSMITH_CLI_ENTRYPOINT:-}" ]]; then
           cli="$HOOKSMITH_CLI_ENTRYPOINT"
         else

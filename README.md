@@ -83,6 +83,7 @@ Inputs:
 - `config` — Hooksmith configuration module; defaults to `hooksmith.config.ts`.
 - `plan` — evaluate routing without invoking listeners; defaults to `false`.
 - `report-path` — optional location for the complete JSON report.
+- `minimum-dependency-age` — minimum dependency age passed directly to Deno; defaults to `0`, allowing freshly published packages. Use Deno's native syntax, for example `P1D` for one day or `PT6H` for six hours. See [Deno's minimum dependency age documentation](https://docs.deno.com/runtime/reference/deno_json/#minimumdependencyage).
 
 Outputs:
 
@@ -90,13 +91,13 @@ Outputs:
 - `mode` — `run` or `plan`.
 - `report-path` — absolute path to the generated JSON report.
 
-The Action uses the CLI version associated with the Action release, keeping the executable and Action distribution aligned.
+The Action uses the CLI version associated with the Action release, keeping the executable and Action distribution aligned. By default it disables Deno's minimum dependency age check so workflows can use newly published Hooksmith packages immediately; consumers can opt back into the check with `minimum-dependency-age`.
 
 ## Dependencies
 
 The CLI consumes published Hooksmith packages rather than source files from the runtime repository. This keeps the repository boundary explicit and lets the CLI evolve and release independently.
 
-Deno's default minimum dependency age remains enabled for third-party dependencies. Fresh `@hooksmith/core` and `@hooksmith/runtime` releases are explicitly exempted so this repository can validate a newly published Hooksmith runtime immediately.
+Deno's default minimum dependency age remains enabled for third-party dependencies during development in this repository. Fresh `@hooksmith/core` and `@hooksmith/runtime` releases are explicitly exempted so this repository can validate a newly published Hooksmith runtime immediately.
 
 ## Development
 

@@ -83,6 +83,7 @@ Inputs:
 - `config` — Hooksmith configuration module; defaults to `hooksmith.config.ts`.
 - `plan` — evaluate routing without invoking listeners; defaults to `false`.
 - `report-path` — optional location for the complete JSON report.
+- `show-report` — print the captured JSON report after a successful run; defaults to `true`. Set it to `false` when only the file output is needed.
 - `minimum-dependency-age` — minimum dependency age passed directly to Deno; defaults to `0`, allowing freshly published packages. Use Deno's native syntax, for example `P1D` for one day or `PT6H` for six hours. See [Deno's minimum dependency age documentation](https://docs.deno.com/runtime/reference/deno_json/#minimumdependencyage).
 
 Outputs:
@@ -90,6 +91,8 @@ Outputs:
 - `success` — whether the Hooksmith run succeeded.
 - `mode` — `run` or `plan`.
 - `report-path` — absolute path to the generated JSON report.
+
+The Action streams Hooksmith logs to stderr while capturing the CLI's JSON stdout into the report file. On successful runs it prints that captured report to the workflow log by default. The file remains the canonical report output regardless of whether `show-report` is enabled, so downstream steps can consume `${{ steps.<id>.outputs.report-path }}` without parsing console output.
 
 The Action uses the CLI version associated with the Action release, keeping the executable and Action distribution aligned. By default it disables Deno's minimum dependency age check so workflows can use newly published Hooksmith packages immediately; consumers can opt back into the check with `minimum-dependency-age`.
 

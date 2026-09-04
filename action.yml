@@ -17,6 +17,10 @@ inputs:
   report-path:
     description: Optional path where the JSON run report is written, relative to the workspace unless absolute.
     required: false
+  show-report:
+    description: Print the captured JSON report after a successful run.
+    required: false
+    default: "true"
   minimum-dependency-age:
     description: Minimum dependency age passed to Deno. Uses Deno's native syntax; defaults to 0 to allow freshly published packages.
     required: false
@@ -51,6 +55,7 @@ runs:
         HOOKSMITH_CONFIG: ${{ inputs.config }}
         HOOKSMITH_PLAN: ${{ inputs.plan }}
         HOOKSMITH_REPORT_PATH: ${{ inputs.report-path }}
+        HOOKSMITH_SHOW_REPORT: ${{ inputs.show-report }}
         HOOKSMITH_MINIMUM_DEPENDENCY_AGE: ${{ inputs.minimum-dependency-age }}
       run: |
         set -euo pipefail
@@ -79,6 +84,15 @@ runs:
             ;;
           *)
             echo "::error::plan must be either 'true' or 'false'."
+            exit 1
+            ;;
+        esac
+
+        case "$HOOKSMITH_SHOW_REPORT" in
+          true|false)
+            ;;
+          *)
+            echo "::error::show-report must be either 'true' or 'false'."
             exit 1
             ;;
         esac
@@ -121,6 +135,10 @@ runs:
         echo "success=$success" >> "$GITHUB_OUTPUT"
         echo "mode=$mode" >> "$GITHUB_OUTPUT"
         echo "report-path=$output_report_path" >> "$GITHUB_OUTPUT"
+
+        if [[ "$status" -eq 0 && "$HOOKSMITH_SHOW_REPORT" == "true" && -s "$report_path" ]]; then
+          cat "$report_path"
+        fi
 
         exit "$status"
 

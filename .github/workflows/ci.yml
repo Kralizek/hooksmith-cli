@@ -184,6 +184,7 @@ jobs:
           config: ./tests/fixtures/hooksmith.config.ts
           plan: true
           report-path: ${{ runner.temp }}/hooksmith/custom-plan-report.json
+          show-report: false
       - name: Validate plan outputs
         shell: bash
         env:
@@ -253,4 +254,19 @@ jobs:
         shell: bash
         env:
           HOOKSMITH_OUTCOME: ${{ steps.invalid-plan.outcome }}
+        run: test "$HOOKSMITH_OUTCOME" = "failure"
+
+      - name: Reject invalid show-report input
+        id: invalid-show-report
+        continue-on-error: true
+        uses: ./
+        with:
+          event: ./tests/fixtures/run-single.yaml
+          config: ./tests/fixtures/hooksmith.config.ts
+          show-report: maybe
+      - name: Validate invalid show-report failure
+        if: always()
+        shell: bash
+        env:
+          HOOKSMITH_OUTCOME: ${{ steps.invalid-show-report.outcome }}
         run: test "$HOOKSMITH_OUTCOME" = "failure"

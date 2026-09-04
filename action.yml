@@ -17,6 +17,10 @@ inputs:
   report-path:
     description: Optional path where the JSON run report is written, relative to the workspace unless absolute.
     required: false
+  minimum-dependency-age:
+    description: Minimum dependency age passed to Deno. Uses Deno's native syntax; defaults to 0 to allow freshly published packages.
+    required: false
+    default: "0"
 
 outputs:
   success:
@@ -47,10 +51,11 @@ runs:
         HOOKSMITH_CONFIG: ${{ inputs.config }}
         HOOKSMITH_PLAN: ${{ inputs.plan }}
         HOOKSMITH_REPORT_PATH: ${{ inputs.report-path }}
+        HOOKSMITH_MINIMUM_DEPENDENCY_AGE: ${{ inputs.minimum-dependency-age }}
       run: |
         set -euo pipefail
 
-        deno_args=()
+        deno_args=(--minimum-dependency-age "$HOOKSMITH_MINIMUM_DEPENDENCY_AGE")
         if [[ -n "${HOOKSMITH_CLI_ENTRYPOINT:-}" ]]; then
           cli="$HOOKSMITH_CLI_ENTRYPOINT"
         else

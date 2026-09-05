@@ -1,8 +1,9 @@
 #!/usr/bin/env -S deno run --allow-read --allow-env --allow-net
 
-import type { Config, Event, Logger } from "@hooksmith/core";
+import type { Config, Event } from "@hooksmith/core";
 import {
   assertEventDocument,
+  createLoggerFactory,
   createRuntime,
   hydrateEvent,
   type Runtime,
@@ -31,6 +32,19 @@ export const VERSION = cliMetadata.version;
 let exitCode = 0;
 const reportFormatType = new EnumType(["table", "json", "tsv"] as const);
 
+const loggerFactory = createLoggerFactory({
+  minimumLevel: "debug",
+  write(record) {
+    const values: unknown[] = [
+      `[${record.level.toUpperCase()}] ${record.message}`,
+    ];
+    if (record.properties !== undefined) values.push(record.properties);
+    if (record.error !== undefined) values.push(record.error);
+    console.error(...values);
+  },
+});
+const stderrLogger = loggerFactory.getLogger("CLI");
+
 const runCommand = new Command()
   .description("Process one or more bounded event inputs.")
   .helpOption(false)
@@ -56,7 +70,7 @@ const runCommand = new Command()
 
     const configFile = resolve(options.config);
     const config = await loadConfig(configFile);
-    const runtime = createRuntime(config, { log: stderrLogger });
+    const runtime = createRuntime(config, { logger: loggerFactory });
     const report = await processBounded(runtime, {
       eventFiles: inputs,
       configFile,
@@ -79,7 +93,7 @@ const streamCommand = new Command()
   )
   .action(async (options) => {
     const config = await loadConfig(resolve(options.config));
-    const runtime = createRuntime(config, { log: stderrLogger });
+    const runtime = createRuntime(config, { logger: loggerFactory });
     exitCode = await processStream(runtime);
   });
 
@@ -300,30 +314,6 @@ async function* readLines(
     if (buffer.length > 0) yield buffer.replace(/\r$/, "");
   } finally {
     reader.releaseLock();
-  }
-}
-
-const stderrLogger: Logger = {
-  debug: (message, ...args) => logToStderr("DEBUG", message, args),
-  info: (message, ...args) => logToStderr("INFO", message, args),
-  warn: (message, ...args) => logToStderr("WARN", message, args),
-  error: (message, ...args) => logToStderr("ERROR", message, args),
-};
-
-function logToStderr(level: string, message: string, args: unknown[]): void {
-  const suffix = args.length === 0
-    ? ""
-    : ` ${args.map(renderLogValue).join(" ")}`;
-  console.error(`[${level}] ${message}${suffix}`);
-}
-
-function renderLogValue(value: unknown): string {
-  if (typeof value === "string") return value;
-
-  try {
-    return JSON.stringify(value) ?? String(value);
-  } catch {
-    return String(value);
   }
 }
 

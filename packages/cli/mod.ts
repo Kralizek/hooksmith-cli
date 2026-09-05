@@ -151,7 +151,7 @@ export async function main(args: string[]): Promise<number> {
     await cli.parse(args);
     return exitCode;
   } catch (error) {
-    console.error(errorMessage(error));
+    console.error(`[ERROR] ${errorMessage(error)}`);
     return 1;
   }
 }

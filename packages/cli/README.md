@@ -21,8 +21,9 @@ Use `hooksmith help run` and `hooksmith help stream` for command-specific help.
 ```text
 -c, --config <path>          Config file (default: hooksmith.config.ts)
     --format table|json|tsv  Report format (default: table)
+    --log <level>            trace|debug|info|warn|error|none (default: info)
     --plan                   Plan events without invoking listeners
-    --allow-empty            Allow a run that resolves to zero events
+    --allow-empty            Allow a run resolving to zero events
 ```
 
 `run` accepts one or more YAML/JSON files, glob patterns, plus `-` for bounded
@@ -38,6 +39,7 @@ each result.
 ```sh
 hooksmith run first.yaml second.json -c hooksmith.config.ts
 hooksmith run "events/**/*.json" -c hooksmith.config.ts
+hooksmith run event.json --log debug
 cat events.yaml | hooksmith run - --format json
 ```
 
@@ -49,6 +51,7 @@ or invalid event documents are still reported as failures.
 
 ```text
 -c, --config <path>          Config file (default: hooksmith.config.ts)
+    --log <level>            trace|debug|info|warn|error|none (default: info)
 ```
 
 `stream` reads NDJSON from stdin and emits one compact NDJSON report for every
@@ -57,7 +60,13 @@ streaming input and output are both part of the command contract.
 
 ```sh
 producer | hooksmith stream -c hooksmith.config.ts
+producer | hooksmith stream --log warn
 ```
+
+Both commands write Hooksmith operational logs to stderr. `--log` controls the
+minimum emitted level, and `none` suppresses operational logs entirely. CLI
+usage and parsing errors are still written to stderr independently of that
+setting.
 
 Event-level failures are emitted as unsuccessful reports and processing
 continues. Normal EOF exits successfully; process-level failures such as

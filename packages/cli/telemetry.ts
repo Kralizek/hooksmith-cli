@@ -6,15 +6,15 @@ import {
   trace,
 } from "@opentelemetry/api";
 
-enableOpenTelemetry();
-
 const scope = "@hooksmith/cli";
+let telemetryEnabled = false;
 
 export async function withCliSpan<T>(
   name: string,
   attributes: Attributes,
   run: (span: Span) => Promise<T>,
 ): Promise<T> {
+  ensureOpenTelemetry();
   const tracer = trace.getTracer(scope);
 
   return await tracer.startActiveSpan(name, { attributes }, async (span) => {
@@ -22,6 +22,7 @@ export async function withCliSpan<T>(
       return await run(span);
     } catch (error) {
       const exception = toException(error);
+      span.setAttribute("hooksmith.status", "failure");
       span.recordException(exception);
       span.setStatus({
         code: SpanStatusCode.ERROR,
@@ -39,6 +40,12 @@ export function setCliSpanStatus(span: Span, success: boolean): void {
   if (!success) {
     span.setStatus({ code: SpanStatusCode.ERROR });
   }
+}
+
+function ensureOpenTelemetry(): void {
+  if (telemetryEnabled) return;
+  enableOpenTelemetry();
+  telemetryEnabled = true;
 }
 
 function toException(error: unknown): Error {

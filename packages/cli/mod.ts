@@ -23,6 +23,7 @@ import {
   inferRoutingOutcome,
   toEventReport,
 } from "./report.ts";
+import { setCliSpanStatus, withCliSpan } from "./telemetry.ts";
 
 export * from "./args.ts";
 export * from "./input.ts";
@@ -65,21 +66,31 @@ const runCommand = new Command()
       throw new Error("run accepts stdin at most once.");
     }
 
-    const configFile = resolve(options.config);
-    const config = await loadConfig(configFile);
-    const runtime = createRuntime(config, {
-      logger: createCliLoggerFactory(options.log),
-    });
-    const report = await processBounded(runtime, {
-      eventFiles: inputs,
-      configFile,
-      format: options.format,
-      plan: options.plan ?? false,
-      allowEmpty: options.allowEmpty ?? false,
-    });
+    await withCliSpan(
+      "hooksmith.cli.run",
+      {
+        "hooksmith.cli.command": "run",
+        "hooksmith.mode": options.plan ? "plan" : "run",
+      },
+      async (span) => {
+        const configFile = resolve(options.config);
+        const config = await loadConfig(configFile);
+        const runtime = createRuntime(config, {
+          logger: createCliLoggerFactory(options.log),
+        });
+        const report = await processBounded(runtime, {
+          eventFiles: inputs,
+          configFile,
+          format: options.format,
+          plan: options.plan ?? false,
+          allowEmpty: options.allowEmpty ?? false,
+        });
 
-    await writeStdout(`${formatReport(report, options.format)}\n`);
-    exitCode = report.success ? 0 : 1;
+        await writeStdout(`${formatReport(report, options.format)}\n`);
+        exitCode = report.success ? 0 : 1;
+        setCliSpanStatus(span, report.success);
+      },
+    );
   });
 
 const streamCommand = new Command()
@@ -97,11 +108,21 @@ const streamCommand = new Command()
     { default: "info" },
   )
   .action(async (options) => {
-    const config = await loadConfig(resolve(options.config));
-    const runtime = createRuntime(config, {
-      logger: createCliLoggerFactory(options.log),
-    });
-    exitCode = await processStream(runtime);
+    await withCliSpan(
+      "hooksmith.cli.stream",
+      {
+        "hooksmith.cli.command": "stream",
+        "hooksmith.mode": "run",
+      },
+      async (span) => {
+        const config = await loadConfig(resolve(options.config));
+        const runtime = createRuntime(config, {
+          logger: createCliLoggerFactory(options.log),
+        });
+        exitCode = await processStream(runtime);
+        setCliSpanStatus(span, exitCode === 0);
+      },
+    );
   });
 
 const helpCommand = new Command()

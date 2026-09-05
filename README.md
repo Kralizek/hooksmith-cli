@@ -70,6 +70,33 @@ producer | hooksmith stream --log warn
 
 Both `run` and `stream` write Hooksmith operational logs to stderr. `--log` controls the minimum emitted level; `none` suppresses operational logs entirely without suppressing CLI usage or parsing errors.
 
+### OpenTelemetry
+
+The CLI is an OpenTelemetry-aware Hooksmith host. It installs the Hooksmith OpenTelemetry backend and creates a top-level span for each executable operation:
+
+```text
+hooksmith.cli.run
+└─ hooksmith.event.process
+   └─ hooksmith.listener
+
+hooksmith.cli.stream
+└─ hooksmith.event.process
+   └─ hooksmith.listener
+```
+
+The CLI uses the standard OpenTelemetry API and does not install or configure an SDK, exporter, collector, or backend. With Deno's built-in OpenTelemetry support, enable export through environment variables:
+
+```sh
+OTEL_DENO=true \
+OTEL_EXPORTER_OTLP_PROTOCOL=console \
+OTEL_SERVICE_NAME=hooksmith-cli \
+hooksmith run event.yaml
+```
+
+Use the normal `OTEL_*` environment variables for OTLP endpoints, headers, sampling, resource attributes, and exporter configuration. The same environment-based configuration works when the CLI is invoked through the GitHub Action.
+
+The CLI spans use the `@hooksmith/cli` instrumentation scope. `hooksmith.cli.run` records `hooksmith.mode=run|plan`; `hooksmith.cli.stream` records `hooksmith.mode=run`. Both record `hooksmith.status`, and process-level exceptions are recorded on the CLI span. Runtime, pipeline, extension, and Deno-native spans then attach below the active CLI span.
+
 ## GitHub Action
 
 Hooksmith can be used directly from a workflow without installing Deno explicitly:
@@ -105,7 +132,7 @@ The Action uses the CLI version associated with the Action release, keeping the 
 
 The CLI consumes published Hooksmith packages rather than source files from the runtime repository. This keeps the repository boundary explicit and lets the CLI evolve and release independently.
 
-Deno's default minimum dependency age remains enabled for third-party dependencies during development in this repository. Fresh `@hooksmith/core` and `@hooksmith/runtime` releases are explicitly exempted so this repository can validate a newly published Hooksmith runtime immediately.
+Deno's default minimum dependency age remains enabled for third-party dependencies during development in this repository. Fresh `@hooksmith/core`, `@hooksmith/opentelemetry`, and `@hooksmith/runtime` releases are explicitly exempted so this repository can validate a newly published Hooksmith runtime immediately.
 
 ## Development
 
@@ -127,7 +154,7 @@ The integration scenarios use repository-owned fixtures under [`tests/fixtures`]
 
 ## Packages
 
-- [`@hooksmith/cli`](packages/cli) — bounded runs, streaming, config loading, and report formatting.
+- [`@hooksmith/cli`](packages/cli) — bounded runs, streaming, config loading, report formatting, and OpenTelemetry host instrumentation.
 
 ## License
 

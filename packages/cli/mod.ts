@@ -156,7 +156,7 @@ export async function main(args: string[]): Promise<number> {
   }
 }
 
-export function createCliLoggerFactory(minimumLevel: LogLevelFilter) {
+function createCliLoggerFactory(minimumLevel: LogLevelFilter) {
   return createLoggerFactory({
     minimumLevel,
     write(record) {

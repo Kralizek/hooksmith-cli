@@ -80,7 +80,5 @@ Deno.test("CLI OpenTelemetry span parents Hooksmith runtime spans", async () => 
   } finally {
     await provider.shutdown();
     contextManager.disable();
-    context.disable();
-    trace.disable();
   }
 });

@@ -8,10 +8,7 @@ import {
 } from "@opentelemetry/sdk-trace-base";
 import type { Config, Event } from "@hooksmith/core";
 import { createRuntime, nullLoggerFactory } from "@hooksmith/runtime";
-import {
-  setCliSpanStatus,
-  withCliSpan,
-} from "../packages/cli/telemetry.ts";
+import { setCliSpanStatus, withCliSpan } from "../packages/cli/telemetry.ts";
 
 Deno.test("CLI OpenTelemetry span parents Hooksmith runtime spans", async () => {
   const exporter = new InMemorySpanExporter();

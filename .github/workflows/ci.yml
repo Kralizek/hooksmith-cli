@@ -154,6 +154,7 @@ jobs:
         with:
           event: ./tests/fixtures/run-single.yaml
           config: ./tests/fixtures/hooksmith.config.ts
+          log: warn
       - name: Validate Action outputs and report
         shell: bash
         env:
@@ -269,4 +270,19 @@ jobs:
         shell: bash
         env:
           HOOKSMITH_OUTCOME: ${{ steps.invalid-show-report.outcome }}
+        run: test "$HOOKSMITH_OUTCOME" = "failure"
+
+      - name: Reject invalid log input
+        id: invalid-log
+        continue-on-error: true
+        uses: ./
+        with:
+          event: ./tests/fixtures/run-single.yaml
+          config: ./tests/fixtures/hooksmith.config.ts
+          log: verbose
+      - name: Validate invalid log failure
+        if: always()
+        shell: bash
+        env:
+          HOOKSMITH_OUTCOME: ${{ steps.invalid-log.outcome }}
         run: test "$HOOKSMITH_OUTCOME" = "failure"

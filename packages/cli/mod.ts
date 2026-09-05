@@ -62,9 +62,6 @@ const runCommand = new Command()
   .option("--allow-empty", "Allow a run that resolves to zero events.")
   .action(async (options, eventFile, ...eventFiles) => {
     const inputs = [eventFile, ...eventFiles];
-    if (inputs.filter((path) => path === "-").length > 1) {
-      throw new Error("run accepts stdin at most once.");
-    }
 
     await withCliSpan(
       "hooksmith.cli.run",
@@ -73,6 +70,10 @@ const runCommand = new Command()
         "hooksmith.mode": options.plan ? "plan" : "run",
       },
       async (span) => {
+        if (inputs.filter((path) => path === "-").length > 1) {
+          throw new Error("run accepts stdin at most once.");
+        }
+
         const configFile = resolve(options.config);
         const config = await loadConfig(configFile);
         const runtime = createRuntime(config, {

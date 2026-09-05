@@ -91,11 +91,10 @@ hooksmith run event.json
 ```
 
 Use normal `OTEL_*` variables for endpoints, headers, resource attributes,
-sampling, and exporter behavior. If no OpenTelemetry provider is registered,
-the standard API remains effectively no-op while Hooksmith execution behavior
-is unchanged.
+sampling, and exporter behavior. If no OpenTelemetry provider is registered, the
+standard API remains effectively no-op while Hooksmith execution behavior is
+unchanged.
 
 CLI host spans use the `@hooksmith/cli` instrumentation scope and record
 `hooksmith.cli.command`, `hooksmith.mode`, and `hooksmith.status`. Process-level
-exceptions are recorded on the host span before they are surfaced as CLI
-errors.
+exceptions are recorded on the host span before they are surfaced as CLI errors.

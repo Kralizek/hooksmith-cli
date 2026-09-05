@@ -41,6 +41,7 @@ hooksmith stream [options]
 hooksmith run event.yaml
 hooksmith run first.yaml second.json -c hooksmith.config.ts
 hooksmith run "events/**/*.json" --format json
+hooksmith run event.yaml --log debug
 cat events.yaml | hooksmith run - --plan
 ```
 
@@ -51,6 +52,7 @@ Important options:
 ```text
 -c, --config <path>          Config file (default: hooksmith.config.ts)
     --format table|json|tsv  Report format (default: table)
+    --log <level>            trace|debug|info|warn|error|none (default: info)
     --plan                   Plan without invoking listeners
     --allow-empty            Allow a run resolving to zero events
 ```
@@ -61,9 +63,12 @@ See [`packages/cli`](packages/cli) for the full command contract and report sema
 
 ```sh
 producer | hooksmith stream -c hooksmith.config.ts
+producer | hooksmith stream --log warn
 ```
 
 `stream` reads NDJSON from stdin and writes one compact NDJSON report for each non-empty input line. Event-level failures are reported without terminating the stream; process-level failures remain fatal.
+
+Both `run` and `stream` write Hooksmith operational logs to stderr. `--log` controls the minimum emitted level; `none` suppresses operational logs entirely without suppressing CLI usage or parsing errors.
 
 ## GitHub Action
 

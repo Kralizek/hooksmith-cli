@@ -1,10 +1,12 @@
 #!/usr/bin/env -S deno run --allow-read --allow-env --allow-net
 
-import type { Config, Event, Logger } from "@hooksmith/core";
+import type { Config, Event } from "@hooksmith/core";
 import {
   assertEventDocument,
+  createLoggerFactory,
   createRuntime,
   hydrateEvent,
+  type LogLevelFilter,
   type Runtime,
 } from "@hooksmith/runtime";
 import { Command, EnumType } from "@cliffy/command";
@@ -30,11 +32,15 @@ export const VERSION = cliMetadata.version;
 
 let exitCode = 0;
 const reportFormatType = new EnumType(["table", "json", "tsv"] as const);
+const logLevelType = new EnumType(
+  ["trace", "debug", "info", "warn", "error", "none"] as const,
+);
 
 const runCommand = new Command()
   .description("Process one or more bounded event inputs.")
   .helpOption(false)
   .type("report-format", reportFormatType)
+  .type("log-level", logLevelType)
   .arguments("<eventFile:string> [...eventFiles:string]")
   .option(
     "-c, --config <path:string>",
@@ -46,6 +52,11 @@ const runCommand = new Command()
     "Report format.",
     { default: "table" },
   )
+  .option(
+    "--log <level:log-level>",
+    "Minimum log level.",
+    { default: "info" },
+  )
   .option("--plan", "Plan events without invoking listeners.")
   .option("--allow-empty", "Allow a run that resolves to zero events.")
   .action(async (options, eventFile, ...eventFiles) => {
@@ -56,7 +67,9 @@ const runCommand = new Command()
 
     const configFile = resolve(options.config);
     const config = await loadConfig(configFile);
-    const runtime = createRuntime(config, { log: stderrLogger });
+    const runtime = createRuntime(config, {
+      logger: createCliLoggerFactory(options.log),
+    });
     const report = await processBounded(runtime, {
       eventFiles: inputs,
       configFile,
@@ -72,14 +85,22 @@ const runCommand = new Command()
 const streamCommand = new Command()
   .description("Read NDJSON events from stdin and emit NDJSON reports.")
   .helpOption(false)
+  .type("log-level", logLevelType)
   .option(
     "-c, --config <path:string>",
     "Config file.",
     { default: "hooksmith.config.ts" },
   )
+  .option(
+    "--log <level:log-level>",
+    "Minimum log level.",
+    { default: "info" },
+  )
   .action(async (options) => {
     const config = await loadConfig(resolve(options.config));
-    const runtime = createRuntime(config, { log: stderrLogger });
+    const runtime = createRuntime(config, {
+      logger: createCliLoggerFactory(options.log),
+    });
     exitCode = await processStream(runtime);
   });
 
@@ -130,9 +151,23 @@ export async function main(args: string[]): Promise<number> {
     await cli.parse(args);
     return exitCode;
   } catch (error) {
-    stderrLogger.error(errorMessage(error));
+    console.error(`[ERROR] ${errorMessage(error)}`);
     return 1;
   }
+}
+
+function createCliLoggerFactory(minimumLevel: LogLevelFilter) {
+  return createLoggerFactory({
+    minimumLevel,
+    write(record) {
+      const values: unknown[] = [
+        `[${record.level.toUpperCase()}] ${record.message}`,
+      ];
+      if (record.properties !== undefined) values.push(record.properties);
+      if (record.error !== undefined) values.push(record.error);
+      console.error(...values);
+    },
+  });
 }
 
 async function processBounded(
@@ -300,30 +335,6 @@ async function* readLines(
     if (buffer.length > 0) yield buffer.replace(/\r$/, "");
   } finally {
     reader.releaseLock();
-  }
-}
-
-const stderrLogger: Logger = {
-  debug: (message, ...args) => logToStderr("DEBUG", message, args),
-  info: (message, ...args) => logToStderr("INFO", message, args),
-  warn: (message, ...args) => logToStderr("WARN", message, args),
-  error: (message, ...args) => logToStderr("ERROR", message, args),
-};
-
-function logToStderr(level: string, message: string, args: unknown[]): void {
-  const suffix = args.length === 0
-    ? ""
-    : ` ${args.map(renderLogValue).join(" ")}`;
-  console.error(`[${level}] ${message}${suffix}`);
-}
-
-function renderLogValue(value: unknown): string {
-  if (typeof value === "string") return value;
-
-  try {
-    return JSON.stringify(value) ?? String(value);
-  } catch {
-    return String(value);
   }
 }
 

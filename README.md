@@ -72,7 +72,7 @@ Both `run` and `stream` write Hooksmith operational logs to stderr. `--log` cont
 
 ### OpenTelemetry
 
-The CLI is an OpenTelemetry-aware Hooksmith host. It installs the Hooksmith OpenTelemetry backend and creates a top-level span for each executable operation:
+The CLI is an OpenTelemetry-aware Hooksmith host. It installs the Hooksmith OpenTelemetry backend when command execution begins and creates a top-level span for each executable operation:
 
 ```text
 hooksmith.cli.run
@@ -84,7 +84,7 @@ hooksmith.cli.stream
    └─ hooksmith.listener
 ```
 
-The CLI uses the standard OpenTelemetry API and does not install or configure an SDK, exporter, collector, or backend. With Deno's built-in OpenTelemetry support, enable export through environment variables:
+The CLI uses the standard OpenTelemetry API. It does not configure an OpenTelemetry SDK, provider, exporter, or collector. With Deno's built-in OpenTelemetry support, enable export through environment variables:
 
 ```sh
 OTEL_DENO=true \

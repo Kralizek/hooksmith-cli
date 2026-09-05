@@ -71,3 +71,30 @@ setting.
 Event-level failures are emitted as unsuccessful reports and processing
 continues. Normal EOF exits successfully; process-level failures such as
 configuration, stdin, or stdout failures remain fatal.
+
+## OpenTelemetry
+
+The CLI installs `@hooksmith/opentelemetry` as its process-wide Hooksmith
+telemetry backend and creates a top-level host span around executable commands.
+`run` creates `hooksmith.cli.run`; `stream` creates `hooksmith.cli.stream`.
+Runtime and extension spans naturally become children of that active host span.
+
+The CLI relies on the standard OpenTelemetry API and does not configure an SDK
+or exporter itself. Deno users can enable the built-in provider/exporter with
+standard environment variables:
+
+```sh
+OTEL_DENO=true \
+OTEL_EXPORTER_OTLP_PROTOCOL=console \
+OTEL_SERVICE_NAME=hooksmith-cli \
+hooksmith run event.json
+```
+
+Use normal `OTEL_*` variables for endpoints, headers, resource attributes,
+sampling, and exporter behavior. If no OpenTelemetry provider is registered, the
+standard API remains effectively no-op while Hooksmith execution behavior is
+unchanged.
+
+CLI host spans use the `@hooksmith/cli` instrumentation scope and record
+`hooksmith.cli.command`, `hooksmith.mode`, and `hooksmith.status`. Process-level
+exceptions are recorded on the host span before they are surfaced as CLI errors.

@@ -6,6 +6,7 @@ import {
   createLoggerFactory,
   createRuntime,
   hydrateEvent,
+  type LogLevelFilter,
   type Runtime,
 } from "@hooksmith/runtime";
 import { Command, EnumType } from "@cliffy/command";
@@ -31,24 +32,15 @@ export const VERSION = cliMetadata.version;
 
 let exitCode = 0;
 const reportFormatType = new EnumType(["table", "json", "tsv"] as const);
-
-const loggerFactory = createLoggerFactory({
-  minimumLevel: "debug",
-  write(record) {
-    const values: unknown[] = [
-      `[${record.level.toUpperCase()}] ${record.message}`,
-    ];
-    if (record.properties !== undefined) values.push(record.properties);
-    if (record.error !== undefined) values.push(record.error);
-    console.error(...values);
-  },
-});
-const stderrLogger = loggerFactory.getLogger("CLI");
+const logLevelType = new EnumType(
+  ["trace", "debug", "info", "warn", "error", "none"] as const,
+);
 
 const runCommand = new Command()
   .description("Process one or more bounded event inputs.")
   .helpOption(false)
   .type("report-format", reportFormatType)
+  .type("log-level", logLevelType)
   .arguments("<eventFile:string> [...eventFiles:string]")
   .option(
     "-c, --config <path:string>",
@@ -60,6 +52,11 @@ const runCommand = new Command()
     "Report format.",
     { default: "table" },
   )
+  .option(
+    "--log <level:log-level>",
+    "Minimum log level.",
+    { default: "info" },
+  )
   .option("--plan", "Plan events without invoking listeners.")
   .option("--allow-empty", "Allow a run that resolves to zero events.")
   .action(async (options, eventFile, ...eventFiles) => {
@@ -70,7 +67,9 @@ const runCommand = new Command()
 
     const configFile = resolve(options.config);
     const config = await loadConfig(configFile);
-    const runtime = createRuntime(config, { logger: loggerFactory });
+    const runtime = createRuntime(config, {
+      logger: createCliLoggerFactory(options.log),
+    });
     const report = await processBounded(runtime, {
       eventFiles: inputs,
       configFile,
@@ -86,14 +85,22 @@ const runCommand = new Command()
 const streamCommand = new Command()
   .description("Read NDJSON events from stdin and emit NDJSON reports.")
   .helpOption(false)
+  .type("log-level", logLevelType)
   .option(
     "-c, --config <path:string>",
     "Config file.",
     { default: "hooksmith.config.ts" },
   )
+  .option(
+    "--log <level:log-level>",
+    "Minimum log level.",
+    { default: "info" },
+  )
   .action(async (options) => {
     const config = await loadConfig(resolve(options.config));
-    const runtime = createRuntime(config, { logger: loggerFactory });
+    const runtime = createRuntime(config, {
+      logger: createCliLoggerFactory(options.log),
+    });
     exitCode = await processStream(runtime);
   });
 
@@ -144,9 +151,23 @@ export async function main(args: string[]): Promise<number> {
     await cli.parse(args);
     return exitCode;
   } catch (error) {
-    stderrLogger.error(errorMessage(error));
+    console.error(errorMessage(error));
     return 1;
   }
+}
+
+export function createCliLoggerFactory(minimumLevel: LogLevelFilter) {
+  return createLoggerFactory({
+    minimumLevel,
+    write(record) {
+      const values: unknown[] = [
+        `[${record.level.toUpperCase()}] ${record.message}`,
+      ];
+      if (record.properties !== undefined) values.push(record.properties);
+      if (record.error !== undefined) values.push(record.error);
+      console.error(...values);
+    },
+  });
 }
 
 async function processBounded(

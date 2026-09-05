@@ -94,6 +94,15 @@ runs:
             ;;
         esac
 
+        case "$HOOKSMITH_LOG" in
+          trace|debug|info|warn|error|none)
+            ;;
+          *)
+            echo "::error::log must be one of: trace, debug, info, warn, error, none."
+            exit 1
+            ;;
+        esac
+
         case "$HOOKSMITH_SHOW_REPORT" in
           true|false)
             ;;

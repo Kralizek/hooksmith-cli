@@ -48,7 +48,6 @@ runs:
       uses: denoland/setup-deno@v2
       with:
         deno-version: v2.x
-        cache: true
 
     - name: Run Hooksmith
       id: run

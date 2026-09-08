@@ -1,6 +1,7 @@
 # Hooksmith CLI
 
 [![CI](https://github.com/Kralizek/hooksmith-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/Kralizek/hooksmith-cli/actions/workflows/ci.yml)
+[![GitHub Release](https://img.shields.io/github/v/release/Kralizek/hooksmith-cli)](https://github.com/Kralizek/hooksmith-cli/releases/latest)
 
 Command-line and GitHub Action distribution for [Hooksmith](https://github.com/Kralizek/hooksmith).
 

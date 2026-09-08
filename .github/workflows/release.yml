@@ -308,3 +308,9 @@ jobs:
           else
             echo "Release $TAG is already published."
           fi
+
+  update-badges:
+    needs: publish
+    permissions:
+      contents: write
+    uses: ./.github/workflows/update-badges.yml

@@ -208,31 +208,32 @@ jobs:
           deno-version: v2.x
           cache: true
 
+      - name: Validate release tag
+        id: release-version
+        uses: Kralizek/github-actions/actions/validate-release@v0.2
+        with:
+          tag: ${{ needs.create-release.outputs.tag }}
+          prerelease: false
+
       - name: Resolve release version
         id: version
         shell: bash
         env:
-          TAG: ${{ needs.create-release.outputs.tag }}
+          VERSION: ${{ steps.release-version.outputs.version }}
         run: |
           set -euo pipefail
 
-          if [[ ! "$TAG" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
-            echo "Release tag $TAG is not a stable semantic version." >&2
-            exit 1
-          fi
-
-          version="${TAG#v}"
-          IFS='.' read -r major minor patch <<< "$version"
+          IFS='.' read -r major minor patch <<< "$VERSION"
 
           while IFS= read -r manifest; do
             actual="$(jq -r .version "$manifest")"
-            if [[ "$actual" != "$version" ]]; then
-              echo "$manifest has version $actual, expected $version from tag $TAG" >&2
+            if [[ "$actual" != "$VERSION" ]]; then
+              echo "$manifest has version $actual, expected $VERSION" >&2
               exit 1
             fi
           done < <(jq -r '.workspace[] + "/deno.json"' deno.json)
 
-          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "major_tag=v$major" >> "$GITHUB_OUTPUT"
           echo "minor_tag=v$major.$minor" >> "$GITHUB_OUTPUT"
 

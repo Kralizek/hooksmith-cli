@@ -36,66 +36,103 @@ jobs:
           deno-version: v2.x
           cache: true
 
-      - name: Calculate or resume version
-        id: version
+      - name: Detect incomplete release
+        id: resume
         shell: bash
         run: |
           set -euo pipefail
 
           latest_tag="$(git tag --list 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1 || true)"
-          resume=false
-          previous_tag=""
+          echo "latest-tag=$latest_tag" >> "$GITHUB_OUTPUT"
+          echo "resume=false" >> "$GITHUB_OUTPUT"
 
-          if [[ -n "$latest_tag" ]]; then
-            tag_version="${latest_tag#v}"
-            manifest_version="$(git show "$latest_tag:packages/cli/deno.json" | jq -r .version 2>/dev/null || true)"
-
-            if [[ "$manifest_version" == "$tag_version" ]]; then
-              package_name="$(git show "$latest_tag:packages/cli/deno.json" | jq -r .name)"
-              package_meta="$(curl -fsSL -H 'Accept: application/json' "https://jsr.io/${package_name}/meta.json")"
-
-              if ! jq -e --arg version "$tag_version" '.versions[$version] != null' <<< "$package_meta" >/dev/null; then
-                version="$tag_version"
-                resume=true
-                previous_tag="$(git tag --list 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 2 | head -n 1 || true)"
-                echo "Resuming incomplete release $latest_tag because ${package_name}@${tag_version} is not published on JSR."
-              fi
-            fi
+          if [[ -z "$latest_tag" ]]; then
+            exit 0
           fi
 
-          if [[ "$resume" != "true" ]]; then
-            if [[ -z "$latest_tag" ]]; then
-              current="$(jq -r .version packages/cli/deno.json)"
-            else
-              current="${latest_tag#v}"
-              previous_tag="$latest_tag"
-            fi
+          tag_version="${latest_tag#v}"
+          manifest_version="$(git show "$latest_tag:packages/cli/deno.json" | jq -r .version 2>/dev/null || true)"
 
-            IFS='.' read -r major minor patch <<< "$current"
+          if [[ "$manifest_version" != "$tag_version" ]]; then
+            exit 0
+          fi
 
-            case "${{ inputs.bump }}" in
-              major)
-                major=$((major + 1))
-                minor=0
-                patch=0
-                ;;
-              minor)
-                minor=$((minor + 1))
-                patch=0
-                ;;
-              patch)
-                patch=$((patch + 1))
-                ;;
-            esac
+          package_name="$(git show "$latest_tag:packages/cli/deno.json" | jq -r .name)"
+          package_meta="$(curl -fsSL -H 'Accept: application/json' "https://jsr.io/${package_name}/meta.json")"
 
-            version="${major}.${minor}.${patch}"
-            echo "Releasing v$version"
+          if jq -e --arg version "$tag_version" '.versions[$version] != null' <<< "$package_meta" >/dev/null; then
+            exit 0
+          fi
+
+          previous_tag="$(git tag --list 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 2 | head -n 1 || true)"
+          echo "resume=true" >> "$GITHUB_OUTPUT"
+          echo "version=$tag_version" >> "$GITHUB_OUTPUT"
+          echo "tag=$latest_tag" >> "$GITHUB_OUTPUT"
+          echo "previous-tag=$previous_tag" >> "$GITHUB_OUTPUT"
+          echo "Resuming incomplete release $latest_tag because ${package_name}@${tag_version} is not published on JSR."
+
+      - name: Calculate next release
+        if: steps.resume.outputs.resume != 'true' && steps.resume.outputs['latest-tag'] != ''
+        id: calculated
+        uses: Kralizek/github-actions/actions/calculate-next-release@v0.2
+        with:
+          bump: ${{ inputs.bump }}
+
+      - name: Calculate bootstrap release
+        if: steps.resume.outputs.resume != 'true' && steps.resume.outputs['latest-tag'] == ''
+        id: bootstrap
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          current="$(jq -r .version packages/cli/deno.json)"
+          IFS='.' read -r major minor patch <<< "$current"
+
+          case "${{ inputs.bump }}" in
+            major) major=$((major + 1)); minor=0; patch=0 ;;
+            minor) minor=$((minor + 1)); patch=0 ;;
+            patch) patch=$((patch + 1)) ;;
+          esac
+
+          version="${major}.${minor}.${patch}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          echo "Releasing v$version"
+
+      - name: Resolve release version
+        id: version
+        shell: bash
+        env:
+          RESUME: ${{ steps.resume.outputs.resume }}
+          RESUMED_VERSION: ${{ steps.resume.outputs.version }}
+          RESUMED_TAG: ${{ steps.resume.outputs.tag }}
+          RESUMED_PREVIOUS_TAG: ${{ steps.resume.outputs['previous-tag'] }}
+          CALCULATED_VERSION: ${{ steps.calculated.outputs.version }}
+          CALCULATED_TAG: ${{ steps.calculated.outputs.tag }}
+          CALCULATED_PREVIOUS_TAG: ${{ steps.calculated.outputs['previous-tag'] }}
+          BOOTSTRAP_VERSION: ${{ steps.bootstrap.outputs.version }}
+          BOOTSTRAP_TAG: ${{ steps.bootstrap.outputs.tag }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$RESUME" == "true" ]]; then
+            version="$RESUMED_VERSION"
+            tag="$RESUMED_TAG"
+            previous_tag="$RESUMED_PREVIOUS_TAG"
+          elif [[ -n "$CALCULATED_VERSION" ]]; then
+            version="$CALCULATED_VERSION"
+            tag="$CALCULATED_TAG"
+            previous_tag="$CALCULATED_PREVIOUS_TAG"
+          else
+            version="$BOOTSTRAP_VERSION"
+            tag="$BOOTSTRAP_TAG"
+            previous_tag=""
           fi
 
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "tag=v$version" >> "$GITHUB_OUTPUT"
-          echo "previous_tag=$previous_tag" >> "$GITHUB_OUTPUT"
-          echo "resume=$resume" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "previous-tag=$previous_tag" >> "$GITHUB_OUTPUT"
+          echo "resume=$RESUME" >> "$GITHUB_OUTPUT"
 
       - name: Resume release commit
         if: steps.version.outputs.resume == 'true'
@@ -167,7 +204,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.version.outputs.tag }}
-          PREVIOUS_TAG: ${{ steps.version.outputs.previous_tag }}
+          PREVIOUS_TAG: ${{ steps.version.outputs['previous-tag'] }}
         run: |
           set -euo pipefail
 
@@ -208,31 +245,32 @@ jobs:
           deno-version: v2.x
           cache: true
 
+      - name: Validate release tag
+        id: release-version
+        uses: Kralizek/github-actions/actions/validate-release@v0.2
+        with:
+          tag: ${{ needs.create-release.outputs.tag }}
+          prerelease: false
+
       - name: Resolve release version
         id: version
         shell: bash
         env:
-          TAG: ${{ needs.create-release.outputs.tag }}
+          VERSION: ${{ steps.release-version.outputs.version }}
         run: |
           set -euo pipefail
 
-          if [[ ! "$TAG" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
-            echo "Release tag $TAG is not a stable semantic version." >&2
-            exit 1
-          fi
-
-          version="${TAG#v}"
-          IFS='.' read -r major minor patch <<< "$version"
+          IFS='.' read -r major minor patch <<< "$VERSION"
 
           while IFS= read -r manifest; do
             actual="$(jq -r .version "$manifest")"
-            if [[ "$actual" != "$version" ]]; then
-              echo "$manifest has version $actual, expected $version from tag $TAG" >&2
+            if [[ "$actual" != "$VERSION" ]]; then
+              echo "$manifest has version $actual, expected $VERSION" >&2
               exit 1
             fi
           done < <(jq -r '.workspace[] + "/deno.json"' deno.json)
 
-          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "major_tag=v$major" >> "$GITHUB_OUTPUT"
           echo "minor_tag=v$major.$minor" >> "$GITHUB_OUTPUT"
 

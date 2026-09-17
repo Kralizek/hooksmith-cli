@@ -48,6 +48,13 @@ case "$HOOKSMITH_SHOW_REPORT" in
     ;;
 esac
 
+normalize_path() {
+  deno eval \
+    'import { isAbsolute, resolve } from "node:path"; const [path, base] = Deno.args; const resolved = isAbsolute(path) ? path : resolve(base, path); console.log(Deno.build.os === "windows" ? resolved.replaceAll("\\", "/") : resolved);' \
+    "$1" \
+    "$2"
+}
+
 if [[ -z "$HOOKSMITH_REPORT_PATH" ]]; then
   report_id="$(deno eval 'console.log(crypto.randomUUID())')"
   raw_report_path="$RUNNER_TEMP/hooksmith/report-${report_id}.json"
@@ -55,15 +62,11 @@ else
   raw_report_path="$HOOKSMITH_REPORT_PATH"
 fi
 
-report_path="$(
-  deno eval \
-    'import { isAbsolute, resolve } from "node:path"; const [path, workspace] = Deno.args; const resolved = isAbsolute(path) ? path : resolve(workspace, path); console.log(Deno.build.os === "windows" ? resolved.replaceAll("\\", "/") : resolved);' \
-    "$raw_report_path" \
-    "$GITHUB_WORKSPACE"
-)"
+report_path="$(normalize_path "$raw_report_path" "$GITHUB_WORKSPACE")"
 
 capture_id="$(deno eval 'console.log(crypto.randomUUID())')"
-capture_path="$RUNNER_TEMP/hooksmith/capture-${capture_id}.json"
+raw_capture_path="$RUNNER_TEMP/hooksmith/capture-${capture_id}.json"
+capture_path="$(normalize_path "$raw_capture_path" "$GITHUB_WORKSPACE")"
 mkdir -p "$(dirname "$report_path")" "$(dirname "$capture_path")"
 
 success=false

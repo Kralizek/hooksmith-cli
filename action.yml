@@ -22,7 +22,7 @@ inputs:
     description: Optional path where the JSON run report is written, relative to the workspace unless absolute.
     required: false
   show-report:
-    description: Print the captured JSON report after a successful run.
+    description: Print the captured JSON report when one is produced, including failed runs.
     required: false
     default: "true"
   minimum-dependency-age:
@@ -150,7 +150,7 @@ runs:
         echo "mode=$mode" >> "$GITHUB_OUTPUT"
         echo "report-path=$output_report_path" >> "$GITHUB_OUTPUT"
 
-        if [[ "$status" -eq 0 && "$HOOKSMITH_SHOW_REPORT" == "true" && -s "$report_path" ]]; then
+        if [[ "$HOOKSMITH_SHOW_REPORT" == "true" && -s "$report_path" ]]; then
           cat "$report_path"
         fi
 

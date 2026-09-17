@@ -205,6 +205,7 @@ jobs:
         with:
           event: ./tests/fixtures/does-not-exist.yaml
           config: ./tests/fixtures/hooksmith.config.ts
+          show-report: true
       - name: Validate failure outputs
         if: always()
         shell: bash
@@ -213,6 +214,30 @@ jobs:
           HOOKSMITH_SUCCESS: ${{ steps.failed-hooksmith.outputs.success }}
           HOOKSMITH_MODE: ${{ steps.failed-hooksmith.outputs.mode }}
           HOOKSMITH_REPORT_PATH: ${{ steps.failed-hooksmith.outputs.report-path }}
+        run: |
+          test "$HOOKSMITH_OUTCOME" = "failure"
+          test "$HOOKSMITH_SUCCESS" = "false"
+          test "$HOOKSMITH_MODE" = "run"
+          test -n "$HOOKSMITH_REPORT_PATH"
+          test -f "$HOOKSMITH_REPORT_PATH"
+          jq -e '.success == false and .mode == "run"' "$HOOKSMITH_REPORT_PATH"
+
+      - name: Run failed Hooksmith with report hidden
+        id: failed-hooksmith-hidden
+        continue-on-error: true
+        uses: ./
+        with:
+          event: ./tests/fixtures/does-not-exist.yaml
+          config: ./tests/fixtures/hooksmith.config.ts
+          show-report: false
+      - name: Validate hidden failure report outputs
+        if: always()
+        shell: bash
+        env:
+          HOOKSMITH_OUTCOME: ${{ steps.failed-hooksmith-hidden.outcome }}
+          HOOKSMITH_SUCCESS: ${{ steps.failed-hooksmith-hidden.outputs.success }}
+          HOOKSMITH_MODE: ${{ steps.failed-hooksmith-hidden.outputs.mode }}
+          HOOKSMITH_REPORT_PATH: ${{ steps.failed-hooksmith-hidden.outputs.report-path }}
         run: |
           test "$HOOKSMITH_OUTCOME" = "failure"
           test "$HOOKSMITH_SUCCESS" = "false"

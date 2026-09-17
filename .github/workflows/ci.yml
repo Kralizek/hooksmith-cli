@@ -311,3 +311,104 @@ jobs:
         env:
           HOOKSMITH_OUTCOME: ${{ steps.invalid-log.outcome }}
         run: test "$HOOKSMITH_OUTCOME" = "failure"
+
+  action-runner:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Print a valid failed-run report
+        shell: bash
+        run: |
+          set -euo pipefail
+          output_file="$RUNNER_TEMP/hooksmith-output"
+          : > "$output_file"
+
+          set +e
+          output="$(
+            GITHUB_ACTION_PATH="$GITHUB_WORKSPACE" \
+            GITHUB_OUTPUT="$output_file" \
+            HOOKSMITH_CLI_ENTRYPOINT="$GITHUB_WORKSPACE/packages/cli/mod.ts" \
+            HOOKSMITH_EVENT="./tests/fixtures/does-not-exist.yaml" \
+            HOOKSMITH_CONFIG="./tests/fixtures/hooksmith.config.ts" \
+            HOOKSMITH_PLAN=false \
+            HOOKSMITH_LOG=none \
+            HOOKSMITH_REPORT_PATH="" \
+            HOOKSMITH_SHOW_REPORT=true \
+            HOOKSMITH_MINIMUM_DEPENDENCY_AGE=0 \
+            bash ./scripts/run-action.sh
+          )"
+          status=$?
+          set -e
+
+          test "$status" -eq 1
+          printf '%s\n' "$output" | jq -e '.success == false and .mode == "run" and (.events | length) == 1'
+          grep -q '^success=false$' "$output_file"
+          grep -q '^mode=run$' "$output_file"
+          grep -Eq '^report-path=.+$' "$output_file"
+
+      - name: Hide a valid failed-run report
+        shell: bash
+        run: |
+          set -euo pipefail
+          output_file="$RUNNER_TEMP/hooksmith-output-hidden"
+          : > "$output_file"
+
+          set +e
+          output="$(
+            GITHUB_ACTION_PATH="$GITHUB_WORKSPACE" \
+            GITHUB_OUTPUT="$output_file" \
+            HOOKSMITH_CLI_ENTRYPOINT="$GITHUB_WORKSPACE/packages/cli/mod.ts" \
+            HOOKSMITH_EVENT="./tests/fixtures/does-not-exist.yaml" \
+            HOOKSMITH_CONFIG="./tests/fixtures/hooksmith.config.ts" \
+            HOOKSMITH_PLAN=false \
+            HOOKSMITH_LOG=none \
+            HOOKSMITH_REPORT_PATH="" \
+            HOOKSMITH_SHOW_REPORT=false \
+            HOOKSMITH_MINIMUM_DEPENDENCY_AGE=0 \
+            bash ./scripts/run-action.sh
+          )"
+          status=$?
+          set -e
+
+          test "$status" -eq 1
+          test -z "$output"
+          grep -q '^success=false$' "$output_file"
+          grep -q '^mode=run$' "$output_file"
+          grep -Eq '^report-path=.+$' "$output_file"
+
+      - name: Reject non-report JSON and ignore stale report files
+        shell: bash
+        run: |
+          set -euo pipefail
+          output_file="$RUNNER_TEMP/hooksmith-output-invalid"
+          report_file="$RUNNER_TEMP/hooksmith/stale-report.json"
+          mkdir -p "$(dirname "$report_file")"
+          printf '{"stale":true}\n' > "$report_file"
+          : > "$output_file"
+
+          set +e
+          output="$(
+            GITHUB_ACTION_PATH="$GITHUB_WORKSPACE" \
+            GITHUB_OUTPUT="$output_file" \
+            HOOKSMITH_CLI_ENTRYPOINT="$GITHUB_WORKSPACE/tests/fixtures/not-report.ts" \
+            HOOKSMITH_EVENT="./tests/fixtures/run-single.yaml" \
+            HOOKSMITH_CONFIG="./tests/fixtures/hooksmith.config.ts" \
+            HOOKSMITH_PLAN=false \
+            HOOKSMITH_LOG=none \
+            HOOKSMITH_REPORT_PATH="$report_file" \
+            HOOKSMITH_SHOW_REPORT=true \
+            HOOKSMITH_MINIMUM_DEPENDENCY_AGE=0 \
+            bash ./scripts/run-action.sh
+          )"
+          status=$?
+          set -e
+
+          test "$status" -eq 1
+          test -z "$output"
+          jq -e '.stale == true' "$report_file"
+          grep -q '^success=false$' "$output_file"
+          grep -q '^mode=run$' "$output_file"
+          grep -q '^report-path=$' "$output_file"

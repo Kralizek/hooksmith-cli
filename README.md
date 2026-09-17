@@ -119,7 +119,7 @@ Inputs:
 - `plan` — evaluate routing without invoking listeners; defaults to `false`.
 - `log` — minimum Hooksmith log level: `trace`, `debug`, `info`, `warn`, `error`, or `none`; defaults to `info`.
 - `report-path` — optional location for the complete JSON report.
-- `show-report` — print the captured JSON report after a successful run; defaults to `true`. Set it to `false` when only the file output is needed.
+- `show-report` — print the captured JSON report whenever one is produced, including failed runs; defaults to `true`. Set it to `false` when only the file output is needed.
 - `minimum-dependency-age` — minimum dependency age passed directly to Deno; defaults to `0`, allowing freshly published packages. Use Deno's native syntax, for example `P1D` for one day or `PT6H` for six hours. See [Deno's minimum dependency age documentation](https://docs.deno.com/runtime/reference/deno_json/#minimumdependencyage).
 
 Outputs:
@@ -128,7 +128,7 @@ Outputs:
 - `mode` — `run` or `plan`.
 - `report-path` — absolute path to the generated JSON report.
 
-The Action streams Hooksmith logs to stderr while capturing the CLI's JSON stdout into the report file. The `log` input is passed directly to the CLI's `--log` option. On successful runs the Action prints the captured report to the workflow log by default. The file remains the canonical report output regardless of whether `show-report` is enabled, so downstream steps can consume `${{ steps.<id>.outputs.report-path }}` without parsing console output.
+The Action streams Hooksmith logs to stderr while capturing the CLI's JSON stdout into the report file. The `log` input is passed directly to the CLI's `--log` option. When `show-report` is enabled, the Action prints the captured report to the workflow log whenever the CLI produced one, including unsuccessful Hooksmith runs. The file remains the canonical report output regardless of whether `show-report` is enabled, so downstream steps can consume `${{ steps.<id>.outputs.report-path }}` without parsing console output.
 
 OpenTelemetry is available through the CLI but is not enabled by the Action. Workflows that want telemetry can opt in with Deno's standard environment configuration, for example:
 

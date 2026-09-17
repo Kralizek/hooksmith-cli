@@ -150,8 +150,8 @@ runs:
         echo "mode=$mode" >> "$GITHUB_OUTPUT"
         echo "report-path=$output_report_path" >> "$GITHUB_OUTPUT"
 
-        if [[ "$HOOKSMITH_SHOW_REPORT" == "true" && -s "$report_path" ]]; then
-          cat "$report_path"
+        if [[ "$HOOKSMITH_SHOW_REPORT" == "true" && -n "$output_report_path" ]]; then
+          cat "$output_report_path"
         fi
 
         exit "$status"

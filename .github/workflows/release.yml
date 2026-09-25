@@ -74,7 +74,7 @@ jobs:
       - name: Calculate next release
         if: steps.resume.outputs.resume != 'true' && steps.resume.outputs['latest-tag'] != ''
         id: calculated
-        uses: Kralizek/github-actions/actions/calculate-next-version@v0.3
+        uses: Kralizek/github-actions/actions/calculate-next-version@v0.4
         with:
           bump: ${{ inputs.bump }}
 
@@ -109,7 +109,7 @@ jobs:
           RESUMED_PREVIOUS_TAG: ${{ steps.resume.outputs['previous-tag'] }}
           CALCULATED_VERSION: ${{ steps.calculated.outputs.version }}
           CALCULATED_TAG: ${{ steps.calculated.outputs.tag }}
-          CALCULATED_PREVIOUS_TAG: ${{ steps.calculated.outputs['previous-tag'] }}
+          CALCULATED_RELEASE_NOTES_START_TAG: ${{ steps.calculated.outputs['release-notes-start-tag'] }}
           BOOTSTRAP_VERSION: ${{ steps.bootstrap.outputs.version }}
           BOOTSTRAP_TAG: ${{ steps.bootstrap.outputs.tag }}
         run: |
@@ -122,7 +122,7 @@ jobs:
           elif [[ -n "$CALCULATED_VERSION" ]]; then
             version="$CALCULATED_VERSION"
             tag="$CALCULATED_TAG"
-            previous_tag="$CALCULATED_PREVIOUS_TAG"
+            previous_tag="$CALCULATED_RELEASE_NOTES_START_TAG"
           else
             version="$BOOTSTRAP_VERSION"
             tag="$BOOTSTRAP_TAG"
